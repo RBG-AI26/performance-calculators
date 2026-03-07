@@ -1410,9 +1410,57 @@ function bindHolding() {
       const timingIasRaw = String(document.querySelector("#hold-timing-ias").value || "").trim();
       const timingIsaDevC = parseNum(document.querySelector("#hold-timing-isa-dev").value);
 
+      if (!Number.isFinite(weight) || weight <= 0) {
+        throw new Error("Weight must be > 0 t");
+      }
+      if (!Number.isFinite(altitude) || altitude <= 0) {
+        throw new Error("Altitude must be > 0 ft");
+      }
+      if (!Number.isFinite(fuelAvailable) || fuelAvailable < 0) {
+        throw new Error("Fuel available must be >= 0 kg");
+      }
+      if (!Number.isFinite(inboundCourseDeg) || inboundCourseDeg < 0) {
+        throw new Error("Inbound course must be >= 0 deg");
+      }
+      if (!Number.isFinite(windFromDeg) || windFromDeg < 0) {
+        throw new Error("Wind direction must be >= 0 deg");
+      }
+      if (!Number.isFinite(windSpeedKt) || windSpeedKt < 0) {
+        throw new Error("Wind speed must be >= 0 kt");
+      }
+      if (!Number.isFinite(timingIsaDevC)) {
+        throw new Error("Timing ISA deviation is invalid");
+      }
+
+      if (timingMode === "given-total") {
+        if (!Number.isFinite(totalHoldMin) || totalHoldMin < 0) {
+          throw new Error("Total hold required must be >= 0 min");
+        }
+      } else if (timingMode === "given-inbound") {
+        if (!Number.isFinite(inboundLegMin) || inboundLegMin <= 0) {
+          throw new Error("Inbound leg time must be > 0 min");
+        }
+      } else {
+        throw new Error("Unknown hold timing mode");
+      }
+
       const hold = holdingAt(weight, altitude, 0, perfAdjust);
       const useManualTimingIas = timingIasRaw !== "";
       const timingIasKt = useManualTimingIas ? parseNum(timingIasRaw) : hold.kias;
+
+      const endurance = (fuelAvailable / hold.fuelHr) * 60;
+      const rows = [
+        ["Hold Command IAS (table)", `${format(hold.kias, 0)} kt`],
+        ["Hold Fuel Flow", `${format(hold.fuelHr, 0)} kg/h`],
+        ["Hold less 5%", `${format(hold.lessFivePct, 0)} kg/h`],
+        ["Hold Endurance", formatMinutes(endurance)],
+      ];
+
+      if (timingMode === "given-total" && totalHoldMin === 0) {
+        renderRows(out, rows);
+        return;
+      }
+
       const timing = calculateHoldTiming({
         mode: timingMode,
         totalHoldMin,
@@ -1426,13 +1474,7 @@ function bindHolding() {
         isaDeviationC: timingIsaDevC,
       });
 
-      const endurance = (fuelAvailable / hold.fuelHr) * 60;
-
-      renderRows(out, [
-        ["Hold Command IAS (table)", `${format(hold.kias, 0)} kt`],
-        ["Hold Fuel Flow", `${format(hold.fuelHr, 0)} kg/h`],
-        ["Hold less 5%", `${format(hold.lessFivePct, 0)} kg/h`],
-        ["Hold Endurance", formatMinutes(endurance)],
+      rows.push(
         ["__spacer__", ""],
         ["Hold Timing Input Mode", timingMode === "given-total" ? "Given Total Hold Time" : "Given Inbound Leg Time"],
         [
@@ -1458,7 +1500,8 @@ function bindHolding() {
         ],
         ["Turn Total", `${format(timing.totalTurnMin, 2)} min`],
         ["Turn Radius (common)", `${format(timing.turnRadiusNm, 2)} NM`],
-      ]);
+      );
+      renderRows(out, rows);
     } catch (error) {
       renderError(out, error.message);
     }
