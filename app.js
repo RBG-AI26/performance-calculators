@@ -1,6 +1,7 @@
 const TABLE_DATA = window.TABLE_DATA;
 const LRC_CRUISE_TABLE = window.LRC_CRUISE_TABLE;
 const FLAPS_UP_TABLE = window.FLAPS_UP_TABLE;
+const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
 
@@ -161,6 +162,18 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+function clampToAxis(axis, x) {
+  return clamp(x, axis[0], axis[axis.length - 1]);
+}
+
+function linearClamped(axis, values, x) {
+  return linear(axis, values, clampToAxis(axis, x));
+}
+
+function bilinearClamped(xAxis, yAxis, grid, x, y) {
+  return bilinear(xAxis, yAxis, grid, clampToAxis(xAxis, x), clampToAxis(yAxis, y));
+}
+
 function buildFuelRequirement({ flightFuelKg, landingWeightT, additionalHoldingMin, perfAdjust }) {
   if (!Number.isFinite(flightFuelKg) || flightFuelKg < 0) {
     throw new Error("Flight fuel is invalid");
@@ -258,6 +271,79 @@ function longRangeFuel(anm, weight, perfAdjust, additionalHoldingMin) {
 
   return {
     flightFuel1000Kg: flightFuel1000KgAdjusted,
+    frfKg: fuelBuildUp.frfKg,
+    contingencyKg: fuelBuildUp.contingencyKg,
+    extraHoldingKg: fuelBuildUp.extraHoldingKg,
+    fixedAllowanceKg: fuelBuildUp.fixedAllowanceKg,
+    totalFuelKg: fuelBuildUp.totalFuelKg,
+    timeMinutes,
+  };
+}
+
+function diversionLrcFuel(gnm, wind, altitudeFt, weightT, perfAdjust, additionalHoldingMin) {
+  if (!DIVERSION_LRC_TABLE) {
+    throw new Error("Diversion LRC table is missing");
+  }
+  if (!Number.isFinite(gnm) || !Number.isFinite(wind) || !Number.isFinite(altitudeFt) || !Number.isFinite(weightT)) {
+    throw new Error("Diversion input is invalid");
+  }
+  if (!Number.isFinite(perfAdjust)) {
+    throw new Error("Global flight plan performance adjustment is invalid");
+  }
+
+  const anm = bilinearClamped(
+    DIVERSION_LRC_TABLE.groundToAir.gnmAxis,
+    DIVERSION_LRC_TABLE.groundToAir.windAxis,
+    DIVERSION_LRC_TABLE.groundToAir.values,
+    gnm,
+    wind,
+  );
+
+  const referenceFuel1000Kg = bilinearClamped(
+    DIVERSION_LRC_TABLE.fuelTime.anmAxis,
+    DIVERSION_LRC_TABLE.fuelTime.altitudeAxisFt,
+    DIVERSION_LRC_TABLE.fuelTime.fuel1000KgValues,
+    anm,
+    altitudeFt,
+  );
+  const timeMinutes = bilinearClamped(
+    DIVERSION_LRC_TABLE.fuelTime.anmAxis,
+    DIVERSION_LRC_TABLE.fuelTime.altitudeAxisFt,
+    DIVERSION_LRC_TABLE.fuelTime.timeMinutesValues,
+    anm,
+    altitudeFt,
+  );
+
+  const adjustment1000Kg = bilinearClamped(
+    DIVERSION_LRC_TABLE.fuelAdjustment.referenceFuelAxis1000Kg,
+    DIVERSION_LRC_TABLE.fuelAdjustment.weightAxisT,
+    DIVERSION_LRC_TABLE.fuelAdjustment.adjustment1000KgValues,
+    referenceFuel1000Kg,
+    weightT,
+  );
+
+  const adjustedFuelBeforePerf1000Kg = referenceFuel1000Kg + adjustment1000Kg;
+  const adjustedFuel1000Kg = adjustedFuelBeforePerf1000Kg * (1 + perfAdjust);
+  const adjustedFuelKg = adjustedFuel1000Kg * 1000;
+  const reserveCalcWeightT = weightT - adjustedFuelKg / 1000 - FIXED_ALLOWANCE_KG / 1000;
+  if (!Number.isFinite(reserveCalcWeightT) || reserveCalcWeightT <= 0) {
+    throw new Error("Computed reserve-calculation weight is invalid (check start weight/fuel)");
+  }
+  const fuelBuildUp = buildFuelRequirement({
+    flightFuelKg: adjustedFuelKg,
+    landingWeightT: reserveCalcWeightT,
+    additionalHoldingMin,
+    perfAdjust,
+  });
+
+  return {
+    anm,
+    referenceFuel1000Kg,
+    adjustment1000Kg,
+    adjustedFuelBeforePerf1000Kg,
+    adjustedFuel1000Kg,
+    adjustedFuelKg,
+    reserveCalcWeightT,
     frfKg: fuelBuildUp.frfKg,
     contingencyKg: fuelBuildUp.contingencyKg,
     extraHoldingKg: fuelBuildUp.extraHoldingKg,
@@ -1193,6 +1279,44 @@ function bindLongRange() {
   form.dispatchEvent(new Event("submit"));
 }
 
+function bindDiversion() {
+  const form = document.querySelector("#diversion-form");
+  const out = document.querySelector("#diversion-out");
+  if (!form || !out) return;
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    try {
+      const gnm = parseNum(document.querySelector("#div-gnm").value);
+      const wind = parseNum(document.querySelector("#div-wind").value);
+      const altitudeFt = parseNum(document.querySelector("#div-alt").value);
+      const weightT = parseNum(document.querySelector("#div-weight").value);
+      const holdingMin = parseNum(document.querySelector("#div-hold-min").value);
+      const perfAdjust = getGlobalPerfAdjust();
+
+      const result = diversionLrcFuel(gnm, wind, altitudeFt, weightT, perfAdjust, holdingMin);
+      const rows = [
+        ["Air Distance (ANM)", `${format(result.anm, 2)} nm`],
+        ["Reference Fuel", `${format(result.referenceFuel1000Kg * 1000, 0)} kg`],
+        ["Weight Adjustment", `${format(result.adjustment1000Kg * 1000, 0)} kg`],
+        ["Flight Fuel", `${format(result.adjustedFuel1000Kg * 1000, 0)} kg`],
+        ["Est Landing Weight", `${format(result.reserveCalcWeightT, 1)} t`],
+        ["FRF (30 min hold @ 1500 ft)", `${format(result.frfKg, 0)} kg`],
+        ["Contingency Fuel (5%, min 350, max 1200)", `${format(result.contingencyKg, 0)} kg`],
+        [`Additional Holding Fuel (${format(holdingMin, 1)} min)`, `${format(result.extraHoldingKg, 0)} kg`],
+        ["Approach Fuel", `${format(result.fixedAllowanceKg, 0)} kg`],
+        ["Total Fuel Required", `${format(result.totalFuelKg, 0)} kg`],
+        ["Time", formatMinutes(result.timeMinutes)],
+      ];
+      renderRows(out, rows);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  form.dispatchEvent(new Event("submit"));
+}
+
 function bindHolding() {
   const form = document.querySelector("#holding-form");
   const out = document.querySelector("#holding-out");
@@ -1489,6 +1613,7 @@ function bindGlobalSettings() {
     [
       "#short-trip-form",
       "#long-range-form",
+      "#diversion-form",
       "#holding-form",
       "#lose-time-form",
     ].forEach((selector) => {
@@ -1508,6 +1633,7 @@ function registerServiceWorker() {
 
 bindShortTrip();
 bindLongRange();
+bindDiversion();
 bindHolding();
 bindLoseTime();
 bindConversion();

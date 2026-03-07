@@ -5,7 +5,12 @@ This app reproduces your Excel calculators in a browser UI:
 - Short Trip Fuel
 - Long Range Cruise
   - Includes FRF (30 min hold at 1500 ft using landing weight), contingency (5% min 350 max 1200), and user-entered additional holding minutes
-- Holding (two altitudes for comparison)
+- Diversion (LRC)
+  - GNM to ANM conversion with headwind/tailwind table
+  - Fuel/time interpolation by ANM and altitude
+  - Fuel adjustment by reference fuel and start weight
+  - Clamped-to-edge behavior for out-of-range inputs
+- Holding + Endurance
 - Lose Time Enroute
 - Lose Time strategy comparison:
   - Option A: continue LRC then hold at fix
@@ -56,6 +61,9 @@ Raw extracted ranges are preserved in:
 - `/Users/russellgillson/Documents/New project/extracted_data.json`
 - `/Users/russellgillson/Documents/New project/lrc_data.js`
 - `/Users/russellgillson/Documents/New project/flaps_up_data.js`
+- `/Users/russellgillson/Documents/New project/diversion_data.js`
+
+Diversion tables source file: `/Users/russellgillson/Desktop/flight_planning_tables.xlsx`
 
 ## IAS/Mach/TAS Model
 

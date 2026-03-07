@@ -1,4 +1,4 @@
-const CACHE_NAME = "performance-calculators-v1";
+const CACHE_NAME = "performance-calculators-v2";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -7,6 +7,7 @@ const CORE_ASSETS = [
   "./data.js",
   "./lrc_data.js",
   "./flaps_up_data.js",
+  "./diversion_data.js",
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",

@@ -54,7 +54,7 @@
       </section>
 
       <section class="panel" aria-labelledby="long-range-heading">
-        <h2 id="long-range-heading">Long Range Cruise</h2>
+        <h2 id="long-range-heading">LRC Trip Fuel</h2>
         <form id="long-range-form" class="grid">
           <label>
             Ground Distance (GNM)
@@ -75,6 +75,34 @@
           <button type="submit">Calculate</button>
         </form>
         <div id="long-range-out" class="results"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="diversion-heading">
+        <h2 id="diversion-heading">Diversion (LRC)</h2>
+        <form id="diversion-form" class="grid">
+          <label>
+            Ground Distance (GNM)
+            <input type="number" step="1" id="div-gnm" value="500" />
+          </label>
+          <label>
+            Wind (kt, +tailwind / -headwind)
+            <input type="number" step="1" id="div-wind" value="0" />
+          </label>
+          <label>
+            Diversion Altitude (ft)
+            <input type="number" step="100" id="div-alt" value="20000" />
+          </label>
+          <label>
+            Start Weight (t)
+            <input type="number" step="0.1" id="div-weight" value="180" />
+          </label>
+          <label>
+            Additional Holding Fuel (min)
+            <input type="number" step="1" id="div-hold-min" value="0" />
+          </label>
+          <button type="submit">Calculate</button>
+        </form>
+        <div id="diversion-out" class="results"></div>
       </section>
 
       <section class="panel" aria-labelledby="holding-heading">
@@ -234,6 +262,7 @@
     <script src="./data.js"></script>
     <script src="./lrc_data.js"></script>
     <script src="./flaps_up_data.js"></script>
+    <script src="./diversion_data.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>
