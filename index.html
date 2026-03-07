@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Performance Calculators</title>
+    <meta name="theme-color" content="#005c99" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Performance Calculators" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon-192.png" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <header class="hero">
+        <h1>Performance Calculators</h1>
+      </header>
+
+      <section class="panel" aria-labelledby="global-settings-heading">
+        <h2 id="global-settings-heading">Global Settings</h2>
+        <div class="grid">
+          <label>
+            Flight Plan Performance Adjustment (applies to all fuel calculations)
+            <input type="number" step="0.1" id="global-perf-adjust" value="0" />
+          </label>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="short-trip-heading">
+        <h2 id="short-trip-heading">Short Trip Fuel</h2>
+        <form id="short-trip-form" class="grid">
+          <label>
+            Ground Distance (GNM)
+            <input type="number" step="1" id="st-gnm" value="599" />
+          </label>
+          <label>
+            Wind (kt, +tailwind / -headwind)
+            <input type="number" step="1" id="st-wind" value="60" />
+          </label>
+          <label>
+            Landing Weight (t)
+            <input type="number" step="0.1" id="st-weight" value="172.9" />
+          </label>
+          <label>
+            Additional Holding Fuel (min)
+            <input type="number" step="1" id="st-hold-min" value="0" />
+          </label>
+          <button type="submit">Calculate</button>
+        </form>
+        <div id="short-trip-out" class="results"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="long-range-heading">
+        <h2 id="long-range-heading">Long Range Cruise</h2>
+        <form id="long-range-form" class="grid">
+          <label>
+            Ground Distance (GNM)
+            <input type="number" step="1" id="lr-gnm" value="4000" />
+          </label>
+          <label>
+            Wind (kt, +tailwind / -headwind)
+            <input type="number" step="1" id="lr-wind" value="0" />
+          </label>
+          <label>
+            Landing Weight (t)
+            <input type="number" step="0.1" id="lr-weight" value="172.9" />
+          </label>
+          <label>
+            Additional Holding Fuel (min)
+            <input type="number" step="1" id="lr-hold-min" value="0" />
+          </label>
+          <button type="submit">Calculate</button>
+        </form>
+        <div id="long-range-out" class="results"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="holding-heading">
+        <h2 id="holding-heading">Holding + Endurance</h2>
+        <form id="holding-form" class="grid">
+          <label>
+            Weight (t)
+            <input type="number" step="0.1" id="hold-weight" value="160" />
+          </label>
+          <label>
+            Altitude (ft)
+            <input type="number" step="100" id="hold-alt" value="30000" />
+          </label>
+          <label>
+            Fuel Available (kg)
+            <input type="number" step="1" id="fuel-available" value="3500" />
+          </label>
+          <label>
+            Hold Timing Mode
+            <select id="hold-timing-mode">
+              <option value="given-total" selected>Given Total Hold Time</option>
+              <option value="given-inbound">Given Inbound Leg Time</option>
+            </select>
+          </label>
+          <label>
+            Total Hold Required (min)
+            <input type="number" step="0.1" id="hold-total-min" value="20" />
+          </label>
+          <label>
+            Inbound Leg Time (min)
+            <input type="number" step="0.1" id="hold-inbound-min" value="1" />
+          </label>
+          <label>
+            Inbound Course (deg)
+            <input type="number" step="1" id="hold-inbound-course" value="360" />
+          </label>
+          <label>
+            Hold Side
+            <select id="hold-side">
+              <option value="R" selected>Right</option>
+              <option value="L">Left</option>
+            </select>
+          </label>
+          <label>
+            Wind Direction (deg FROM)
+            <input type="number" step="1" id="hold-wind-dir" value="270" />
+          </label>
+          <label>
+            Wind Speed (kt)
+            <input type="number" step="1" id="hold-wind-speed" value="20" />
+          </label>
+          <label>
+            Timing Flight Level
+            <input type="number" step="1" id="hold-timing-fl" value="300" />
+          </label>
+          <label>
+            Timing IAS (kt)
+            <input type="number" step="1" id="hold-timing-ias" value="230" />
+          </label>
+          <label>
+            Timing ISA Deviation (°C)
+            <input type="number" step="1" id="hold-timing-isa-dev" value="0" />
+          </label>
+          <button type="submit">Calculate</button>
+        </form>
+        <div id="holding-out" class="results"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="lose-time-heading">
+        <h2 id="lose-time-heading">Lose Time Strategy Comparison</h2>
+        <form id="lose-time-form" class="grid">
+          <label>
+            Distance to Fix (NM)
+            <input type="number" step="1" id="lt-distance" value="300" />
+          </label>
+          <label>
+            Current Weight (t)
+            <input type="number" step="0.1" id="lt-weight" value="200" />
+          </label>
+          <label>
+            Current Flight Level (e.g. 370)
+            <input type="number" step="1" id="lt-fl" value="370" />
+          </label>
+          <label>
+            Required Delay (min)
+            <input type="number" step="1" id="lt-delay" value="20" />
+          </label>
+          <label>
+            Wind (kt)
+            <input type="number" step="1" id="lt-wind" value="0" />
+          </label>
+          <label>
+            Level Change
+            <select id="lt-level-change-mode">
+              <option value="none" selected>None</option>
+              <option value="climb">Climb</option>
+              <option value="descent">Descent</option>
+            </select>
+          </label>
+          <label>
+            Change After (min)
+            <input type="number" step="1" id="lt-change-after-min" value="0" />
+          </label>
+          <label>
+            New Flight Level (e.g. 390)
+            <input type="number" step="1" id="lt-new-fl" value="390" />
+          </label>
+          <button type="submit">Calculate</button>
+        </form>
+        <div id="lose-time-out" class="results"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="conversion-heading">
+        <h2 id="conversion-heading">IAS / Mach / TAS (ISA model)</h2>
+        <form id="conversion-form" class="grid">
+          <label>
+            Input Mode
+            <select id="conv-mode">
+              <option value="ias" selected>Given IAS</option>
+              <option value="mach">Given Mach</option>
+              <option value="tas">Given TAS</option>
+            </select>
+          </label>
+          <label>
+            IAS (kt)
+            <input type="number" step="1" id="conv-ias" value="279" />
+          </label>
+          <label>
+            Mach
+            <input type="number" step="0.001" id="conv-mach" value="0.85" />
+          </label>
+          <label>
+            TAS (kt)
+            <input type="number" step="0.1" id="conv-tas" value="485" />
+          </label>
+          <label>
+            Flight Level
+            <input type="number" step="1" id="conv-fl" value="370" />
+          </label>
+          <label>
+            Temperature Source
+            <select id="conv-temp-mode">
+              <option value="oat" selected>OAT</option>
+              <option value="isa-dev">ISA Deviation</option>
+            </select>
+          </label>
+          <label>
+            OAT (°C)
+            <input type="number" step="0.1" id="conv-oat" value="-56" />
+          </label>
+          <label>
+            ISA Deviation (°C)
+            <input type="number" step="0.1" id="conv-isa-dev" value="0" />
+          </label>
+          <button type="submit">Calculate</button>
+        </form>
+        <div id="conversion-out" class="results"></div>
+      </section>
+    </main>
+
+    <script src="./data.js"></script>
+    <script src="./lrc_data.js"></script>
+    <script src="./flaps_up_data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

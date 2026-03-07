@@ -1,0 +1,1451 @@
+const TABLE_DATA = window.TABLE_DATA;
+const LRC_CRUISE_TABLE = window.LRC_CRUISE_TABLE;
+const FLAPS_UP_TABLE = window.FLAPS_UP_TABLE;
+
+const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
+
+const R_AIR = 287.05287;
+const GAMMA = 1.4;
+const G0 = 9.80665;
+const T0 = 288.15;
+const P0 = 101325;
+const FT_TO_M = 0.3048;
+const M_TO_FT = 1 / FT_TO_M;
+const MPS_TO_KT = 1.94384449244;
+const KT_TO_MPS = 0.51444444444;
+const EARTH_RADIUS_M = 6356766;
+const A0 = Math.sqrt(GAMMA * R_AIR * T0);
+const ISA_LAYER_BASES_M = [0, 11000, 20000, 32000, 47000];
+const ISA_LAYER_LAPSE_RATES = [-0.0065, 0, 0.001, 0.0028, 0];
+const ISA_BASES = buildIsaBases();
+const DEG_PER_RAD = 180 / Math.PI;
+const RAD_PER_DEG = Math.PI / 180;
+const STANDARD_RATE_TURN_DEG_PER_SEC = 3;
+const HOLD_MAX_BANK_DEG = 25;
+const FIXED_ALLOWANCE_KG = 200;
+const MIN_CONTINGENCY_KG = 350;
+const MAX_CONTINGENCY_KG = 1200;
+const ENROUTE_HOLD_SPEED_FUEL_FACTOR = 0.95;
+
+function parseNum(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function getGlobalPerfAdjust() {
+  const el = document.querySelector("#global-perf-adjust");
+  const perfAdjust = parseNum(el?.value);
+  if (!Number.isFinite(perfAdjust)) {
+    throw new Error("Global flight plan performance adjustment is invalid");
+  }
+  return perfAdjust;
+}
+
+function format(value, digits = 2) {
+  if (!Number.isFinite(value)) return "-";
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  });
+}
+
+function formatMinutes(minutes) {
+  if (!Number.isFinite(minutes)) return "-";
+  const sign = minutes < 0 ? "-" : "";
+  const abs = Math.abs(minutes);
+  const h = Math.floor(abs / 60);
+  let m = Math.floor(abs % 60);
+  let s = Math.round((abs - Math.floor(abs)) * 60);
+  let hh = h;
+  if (s === 60) {
+    s = 0;
+    m += 1;
+  }
+  if (m === 60) {
+    m = 0;
+    hh += 1;
+  }
+  return `${sign}${String(hh).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function normalize360(deg) {
+  return ((deg % 360) + 360) % 360;
+}
+
+function toRadians(deg) {
+  return deg * RAD_PER_DEG;
+}
+
+function toDegrees(rad) {
+  return rad * DEG_PER_RAD;
+}
+
+function findBracket(axis, x) {
+  if (x < axis[0] || x > axis[axis.length - 1]) {
+    throw new Error(`Value ${x} is out of range ${axis[0]} to ${axis[axis.length - 1]}`);
+  }
+
+  if (x === axis[axis.length - 1]) {
+    return { i0: axis.length - 2, i1: axis.length - 1, t: 1 };
+  }
+
+  for (let i = 0; i < axis.length - 1; i += 1) {
+    const a = axis[i];
+    const b = axis[i + 1];
+    if (x >= a && x <= b) {
+      const t = b === a ? 0 : (x - a) / (b - a);
+      return { i0: i, i1: i + 1, t };
+    }
+  }
+
+  throw new Error(`No interpolation bracket found for ${x}`);
+}
+
+function linear(axis, values, x) {
+  const { i0, i1, t } = findBracket(axis, x);
+  return values[i0] + (values[i1] - values[i0]) * t;
+}
+
+function bilinear(xAxis, yAxis, grid, x, y) {
+  const bx = findBracket(xAxis, x);
+  const by = findBracket(yAxis, y);
+
+  const q11 = grid[bx.i0][by.i0];
+  const q12 = grid[bx.i0][by.i1];
+  const q21 = grid[bx.i1][by.i0];
+  const q22 = grid[bx.i1][by.i1];
+
+  return (
+    q11 * (1 - bx.t) * (1 - by.t) +
+    q21 * bx.t * (1 - by.t) +
+    q12 * (1 - bx.t) * by.t +
+    q22 * bx.t * by.t
+  );
+}
+
+function interpolateAcrossWeight(weightAxis, valuesByWeight, weight) {
+  const { i0, i1, t } = findBracket(weightAxis, weight);
+  const lowerSeries = valuesByWeight[i0];
+  const upperSeries = valuesByWeight[i1];
+  return lowerSeries.map((v, idx) => v + (upperSeries[idx] - v) * t);
+}
+
+function shortTripAnmFromGnm(gnm, wind) {
+  if (gnm < 50 || gnm > 600 || Math.abs(wind) > 100) {
+    throw new Error("Short Trip ANM input out of range (GNM 50-600, wind +/-100)");
+  }
+
+  const gAxis = shortTripAnm.gnmAxis;
+
+  if (wind === 0) return gnm;
+
+  // Spreadsheet convention: positive wind is tailwind, negative wind is headwind.
+  if (wind < 0) {
+    const absWind = Math.abs(wind);
+    if (absWind < 20) {
+      const anmAt20 = linear(gAxis, shortTripAnm.headwindValues.map((row) => row[0]), gnm);
+      return gnm + (anmAt20 - gnm) * (absWind / 20);
+    }
+
+    return bilinear(gAxis, shortTripAnm.headwindAxis, shortTripAnm.headwindValues, gnm, absWind);
+  }
+
+  if (wind < 20) {
+    const anmAt20Tail = linear(gAxis, shortTripAnm.tailwindValues.map((row) => row[0]), gnm);
+    return gnm + (anmAt20Tail - gnm) * (wind / 20);
+  }
+
+  return bilinear(gAxis, shortTripAnm.tailwindAxis, shortTripAnm.tailwindValues, gnm, wind);
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function buildFuelRequirement({ flightFuelKg, landingWeightT, additionalHoldingMin, perfAdjust }) {
+  if (!Number.isFinite(flightFuelKg) || flightFuelKg < 0) {
+    throw new Error("Flight fuel is invalid");
+  }
+  if (!Number.isFinite(landingWeightT) || landingWeightT <= 0) {
+    throw new Error("Landing weight is invalid");
+  }
+  if (!Number.isFinite(additionalHoldingMin)) {
+    throw new Error("Additional holding minutes are invalid");
+  }
+  if (additionalHoldingMin < 0) {
+    throw new Error("Additional holding minutes must be >= 0");
+  }
+
+  let holdFfEng;
+  try {
+    holdFfEng = lookupHoldMetric(landingWeightT, 1500, "ffEng") * (1 + perfAdjust);
+  } catch (error) {
+    throw new Error(`Unable to derive FRF from holding table: ${error.message}`);
+  }
+  const holdFuelHrKg = holdFfEng * 2;
+  const frfKg = holdFuelHrKg * 0.5;
+  const extraHoldingKg = holdFuelHrKg * (additionalHoldingMin / 60);
+  const contingencyKg = clamp(flightFuelKg * 0.05, MIN_CONTINGENCY_KG, MAX_CONTINGENCY_KG);
+  const totalFuelKg = flightFuelKg + frfKg + contingencyKg + extraHoldingKg + FIXED_ALLOWANCE_KG;
+
+  return {
+    frfKg,
+    contingencyKg,
+    extraHoldingKg,
+    fixedAllowanceKg: FIXED_ALLOWANCE_KG,
+    totalFuelKg,
+  };
+}
+
+function shortTripFuelAndAlt(anm, weight, perfAdjust, additionalHoldingMin) {
+  if (anm < 50 || anm > 600 || weight < 120 || weight > 200) {
+    throw new Error("Short Trip fuel/alt input out of range (ANM 50-600, weight 120-200)");
+  }
+
+  const fuelByAnm = interpolateAcrossWeight(shortTripFuelAlt.weightAxis, shortTripFuelAlt.fuelValues, weight);
+  const altByAnm = interpolateAcrossWeight(shortTripFuelAlt.weightAxis, shortTripFuelAlt.altitudeValues, weight);
+
+  const fuel1000kg = linear(shortTripFuelAlt.anmAxis, fuelByAnm, anm);
+  const altitude = linear(shortTripFuelAlt.anmAxis, altByAnm, anm);
+  const timeText = linear(shortTripFuelAlt.anmAxis, shortTripFuelAlt.timeValuesText.map(timeTextToMinutes), anm);
+
+  const flightFuelKg = fuel1000kg * 1000 * (1 + perfAdjust);
+  const fuelBuildUp = buildFuelRequirement({
+    flightFuelKg,
+    landingWeightT: weight,
+    additionalHoldingMin,
+    perfAdjust,
+  });
+
+  return {
+    flightFuelKg,
+    frfKg: fuelBuildUp.frfKg,
+    contingencyKg: fuelBuildUp.contingencyKg,
+    extraHoldingKg: fuelBuildUp.extraHoldingKg,
+    fixedAllowanceKg: fuelBuildUp.fixedAllowanceKg,
+    totalFuelKg: fuelBuildUp.totalFuelKg,
+    altitude,
+    timeMinutes: timeText,
+  };
+}
+
+function longRangeAnmFromGnm(gnm, wind) {
+  return bilinear(longRangeAnm.gnmAxis, longRangeAnm.windAxis, longRangeAnm.values, gnm, wind);
+}
+
+function longRangeFuel(anm, weight, perfAdjust, additionalHoldingMin) {
+  if (anm < 800 || anm > 8400 || weight < 120 || weight > 200) {
+    throw new Error("Long Range input out of range (ANM 800-8400, weight 120-200)");
+  }
+
+  const fuel1000kg = bilinear(
+    longRangeFuelTable.anmAxis,
+    longRangeFuelTable.weightAxis,
+    longRangeFuelTable.fuelValues,
+    anm,
+    weight,
+  );
+  const timeDays = linear(longRangeFuelTable.anmAxis, longRangeFuelTable.timeValuesDays, anm);
+  const timeMinutes = timeDays * 24 * 60;
+
+  const flightFuel1000KgAdjusted = fuel1000kg * (1 + perfAdjust);
+  const flightFuelKg = flightFuel1000KgAdjusted * 1000;
+  const fuelBuildUp = buildFuelRequirement({
+    flightFuelKg,
+    landingWeightT: weight,
+    additionalHoldingMin,
+    perfAdjust,
+  });
+
+  return {
+    flightFuel1000Kg: flightFuel1000KgAdjusted,
+    frfKg: fuelBuildUp.frfKg,
+    contingencyKg: fuelBuildUp.contingencyKg,
+    extraHoldingKg: fuelBuildUp.extraHoldingKg,
+    fixedAllowanceKg: fuelBuildUp.fixedAllowanceKg,
+    totalFuelKg: fuelBuildUp.totalFuelKg,
+    timeMinutes,
+  };
+}
+
+function getHoldingStateFromFlapsUpTable(weightT, altitudeFt) {
+  if (!FLAPS_UP_TABLE || !Array.isArray(FLAPS_UP_TABLE.records)) {
+    throw new Error("Flaps-up holding table is missing");
+  }
+
+  const altitudeAxis = FLAPS_UP_TABLE.altitudesFt;
+  const tryInterp = (values, label) => {
+    try {
+      return interpolateFromAvailablePoints(altitudeAxis, values, altitudeFt, label);
+    } catch {
+      return NaN;
+    }
+  };
+
+  const metricsByWeight = FLAPS_UP_TABLE.records.map((record) => ({
+    weight: record.weightT,
+    kias: tryInterp(record.kiasByAlt, `Hold IAS at ${record.weightT}t`),
+    ffEng: tryInterp(record.ffEngByAlt, `Hold FF/ENG at ${record.weightT}t`),
+  }));
+
+  const kias = interpolateAcrossWeightPoints(
+    metricsByWeight.map((m) => ({ weight: m.weight, value: m.kias })),
+    weightT,
+    "Hold IAS",
+  );
+  const ffEng = interpolateAcrossWeightPoints(
+    metricsByWeight.map((m) => ({ weight: m.weight, value: m.ffEng })),
+    weightT,
+    "Hold FF/ENG",
+  );
+
+  const atmosphere = atmosphereFromPressureAltitude({
+    pressureAltitudeFt: altitudeFt,
+    tempMode: "isa-dev",
+    isaDeviationC: 0,
+    oatC: 0,
+  });
+  const speed = iasToMachTas({
+    iasKt: kias,
+    pressurePa: atmosphere.pressurePa,
+    speedOfSoundMps: atmosphere.speedOfSoundMps,
+  });
+
+  return {
+    kias,
+    tas: speed.tasKt,
+    mach: speed.mach,
+    ffEng,
+  };
+}
+
+function lookupHoldMetric(weight, altitude, key) {
+  const state = getHoldingStateFromFlapsUpTable(weight, altitude);
+  if (!(key in state)) {
+    throw new Error(`Unknown holding metric: ${key}`);
+  }
+  return state[key];
+}
+
+function holdingAt(weight, altitude, wind, perfAdjust) {
+  const state = getHoldingStateFromFlapsUpTable(weight, altitude);
+  const ffEng = state.ffEng * (1 + perfAdjust);
+  const fuelHr = ffEng * 2;
+  const gs = state.tas + wind;
+
+  if (gs <= 0) {
+    throw new Error("Ground speed <= 0 kt in holding calculation");
+  }
+
+  return {
+    kias: state.kias,
+    tas: state.tas,
+    mach: state.mach,
+    ffEng,
+    fuelHr,
+    gs,
+    kgPerGnm: fuelHr / gs,
+    lessFivePct: fuelHr * 0.95,
+  };
+}
+
+function windVectorFromDirection(windFromDeg, windSpeedKt) {
+  const windToDeg = normalize360(windFromDeg + 180);
+  const windToRad = toRadians(windToDeg);
+  return {
+    eastKt: windSpeedKt * Math.sin(windToRad),
+    northKt: windSpeedKt * Math.cos(windToRad),
+  };
+}
+
+function solveHeadingForTrack(trackDeg, tasKt, windFromDeg, windSpeedKt) {
+  const trackRad = toRadians(normalize360(trackDeg));
+  const trackUnit = {
+    east: Math.sin(trackRad),
+    north: Math.cos(trackRad),
+  };
+  const rightUnit = {
+    east: Math.cos(trackRad),
+    north: -Math.sin(trackRad),
+  };
+  const windVec = windVectorFromDirection(windFromDeg, windSpeedKt);
+  const windAlong = windVec.eastKt * trackUnit.east + windVec.northKt * trackUnit.north;
+  const windCross = windVec.eastKt * rightUnit.east + windVec.northKt * rightUnit.north;
+
+  const crossRatio = -windCross / tasKt;
+  if (Math.abs(crossRatio) > 1) {
+    throw new Error("Crosswind component exceeds TAS; cannot maintain selected inbound/outbound tracks");
+  }
+
+  const wcaRad = Math.asin(crossRatio);
+  const headingDeg = normalize360(trackDeg + toDegrees(wcaRad));
+  const gsKt = tasKt * Math.cos(wcaRad) + windAlong;
+  if (gsKt <= 0) {
+    throw new Error("Computed ground speed <= 0 kt");
+  }
+
+  return {
+    headingDeg,
+    gsKt,
+    wcaDeg: toDegrees(wcaRad),
+    windAlongKt: windAlong,
+    windCrossKt: windCross,
+  };
+}
+
+function directedTurnAngleDeg(fromHeadingDeg, toHeadingDeg, holdSide) {
+  const from = normalize360(fromHeadingDeg);
+  const to = normalize360(toHeadingDeg);
+  if (holdSide === "R") return normalize360(to - from);
+  if (holdSide === "L") return normalize360(from - to);
+  throw new Error("Hold side must be L or R");
+}
+
+function computeTurnRateDegPerSec(tasKt) {
+  if (!Number.isFinite(tasKt) || tasKt <= 0) {
+    throw new Error("TAS must be > 0 kt");
+  }
+  const bankLimitedDegPerSec = toDegrees((G0 * Math.tan(toRadians(HOLD_MAX_BANK_DEG))) / (tasKt * KT_TO_MPS));
+  return {
+    bankLimitedDegPerSec,
+    usedDegPerSec: Math.min(STANDARD_RATE_TURN_DEG_PER_SEC, bankLimitedDegPerSec),
+  };
+}
+
+function calculateHoldTiming({
+  mode,
+  totalHoldMin,
+  inboundLegMin,
+  holdSide,
+  inboundCourseDeg,
+  windFromDeg,
+  windSpeedKt,
+  flightLevel,
+  iasKt,
+  isaDeviationC,
+}) {
+  if (!Number.isFinite(flightLevel) || flightLevel <= 0) {
+    throw new Error("Timing Flight Level must be a positive number");
+  }
+  if (!Number.isFinite(iasKt) || iasKt <= 0) {
+    throw new Error("Timing IAS must be > 0 kt");
+  }
+  if (!Number.isFinite(windSpeedKt) || windSpeedKt < 0) {
+    throw new Error("Wind speed must be >= 0 kt");
+  }
+  if (!Number.isFinite(inboundCourseDeg)) {
+    throw new Error("Inbound course is invalid");
+  }
+  if (!Number.isFinite(windFromDeg)) {
+    throw new Error("Wind direction is invalid");
+  }
+  if (!Number.isFinite(isaDeviationC)) {
+    throw new Error("Timing ISA deviation is invalid");
+  }
+
+  const atmosphere = atmosphereFromPressureAltitude({
+    pressureAltitudeFt: flightLevel * 100,
+    tempMode: "isa-dev",
+    isaDeviationC,
+    oatC: 0,
+  });
+  const speed = iasToMachTas({
+    iasKt,
+    pressurePa: atmosphere.pressurePa,
+    speedOfSoundMps: atmosphere.speedOfSoundMps,
+  });
+
+  const inboundTrack = normalize360(inboundCourseDeg);
+  const outboundTrack = normalize360(inboundTrack + 180);
+  const inbound = solveHeadingForTrack(inboundTrack, speed.tasKt, windFromDeg, windSpeedKt);
+  const outbound = solveHeadingForTrack(outboundTrack, speed.tasKt, windFromDeg, windSpeedKt);
+
+  const turnRate = computeTurnRateDegPerSec(speed.tasKt);
+  if (turnRate.usedDegPerSec <= 0) {
+    throw new Error("Turn rate is invalid");
+  }
+
+  const turn1Deg = directedTurnAngleDeg(inbound.headingDeg, outbound.headingDeg, holdSide);
+  const turn2Deg = directedTurnAngleDeg(outbound.headingDeg, inbound.headingDeg, holdSide);
+  const turn1Min = (turn1Deg / turnRate.usedDegPerSec) / 60;
+  const turn2Min = (turn2Deg / turnRate.usedDegPerSec) / 60;
+  const totalTurnMin = turn1Min + turn2Min;
+  const gsRatioInToOut = inbound.gsKt / outbound.gsKt;
+
+  let computedInboundMin;
+  let computedTotalMin;
+  let outboundLegMin;
+  if (mode === "given-inbound") {
+    if (!Number.isFinite(inboundLegMin) || inboundLegMin <= 0) {
+      throw new Error("Inbound leg time must be > 0 min");
+    }
+    computedInboundMin = inboundLegMin;
+    outboundLegMin = computedInboundMin * gsRatioInToOut;
+    computedTotalMin = computedInboundMin + outboundLegMin + totalTurnMin;
+  } else if (mode === "given-total") {
+    if (!Number.isFinite(totalHoldMin) || totalHoldMin <= 0) {
+      throw new Error("Total hold time must be > 0 min");
+    }
+    if (totalHoldMin <= totalTurnMin) {
+      throw new Error("Total hold time is too short for turns at selected speed/bank");
+    }
+    computedTotalMin = totalHoldMin;
+    computedInboundMin = (computedTotalMin - totalTurnMin) / (1 + gsRatioInToOut);
+    outboundLegMin = computedInboundMin * gsRatioInToOut;
+  } else {
+    throw new Error("Unknown hold timing mode");
+  }
+
+  return {
+    iasKt: speed.iasKt,
+    tasKt: speed.tasKt,
+    mach: speed.mach,
+    inboundTrackDeg: inboundTrack,
+    outboundTrackDeg: outboundTrack,
+    inboundHeadingDeg: inbound.headingDeg,
+    outboundHeadingDeg: outbound.headingDeg,
+    inboundGroundSpeedKt: inbound.gsKt,
+    outboundGroundSpeedKt: outbound.gsKt,
+    inboundWcaDeg: inbound.wcaDeg,
+    outboundWcaDeg: outbound.wcaDeg,
+    turnRateDegPerSec: turnRate.usedDegPerSec,
+    bankLimitedTurnRateDegPerSec: turnRate.bankLimitedDegPerSec,
+    turnModel:
+      turnRate.bankLimitedDegPerSec < STANDARD_RATE_TURN_DEG_PER_SEC ? "25° bank limited" : "Rate-1 limited",
+    turn1Deg,
+    turn2Deg,
+    turn1Min,
+    turn2Min,
+    totalTurnMin,
+    gsRatioInToOut,
+    inboundLegMin: computedInboundMin,
+    outboundLegMin,
+    totalHoldMin: computedTotalMin,
+    inboundLegNm: (inbound.gsKt * computedInboundMin) / 60,
+    outboundLegNm: (outbound.gsKt * outboundLegMin) / 60,
+  };
+}
+
+function getFlightLevelAtElapsed(startFl, levelChange, elapsedMin) {
+  if (levelChange.mode === "none") return startFl;
+  return elapsedMin >= levelChange.afterMin ? levelChange.newFl : startFl;
+}
+
+function validateLevelChange(levelChange, startFl) {
+  if (levelChange.mode === "none") return;
+  if (!Number.isFinite(levelChange.afterMin) || levelChange.afterMin < 0) {
+    throw new Error("Level change time must be >= 0 minutes");
+  }
+  if (!Number.isFinite(levelChange.newFl) || levelChange.newFl <= 0) {
+    throw new Error("New FL must be a positive number");
+  }
+  if (levelChange.mode === "climb" && levelChange.newFl <= startFl) {
+    throw new Error("Climb requires new FL above current FL");
+  }
+  if (levelChange.mode === "descent" && levelChange.newFl >= startFl) {
+    throw new Error("Descent requires new FL below current FL");
+  }
+}
+
+function interpolateFromAvailablePoints(xAxis, yAxis, x, label) {
+  const points = xAxis
+    .map((xVal, idx) => ({ x: xVal, y: yAxis[idx] }))
+    .filter((point) => Number.isFinite(point.y))
+    .sort((a, b) => a.x - b.x);
+
+  if (points.length < 2) {
+    throw new Error(`Insufficient ${label} data for interpolation`);
+  }
+
+  const minX = points[0].x;
+  const maxX = points[points.length - 1].x;
+  if (x < minX || x > maxX) {
+    throw new Error(`${label} out of range (${format(minX, 0)}-${format(maxX, 0)})`);
+  }
+
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[i];
+    const p1 = points[i + 1];
+    if (x >= p0.x && x <= p1.x) {
+      if (p1.x === p0.x) return p0.y;
+      const t = (x - p0.x) / (p1.x - p0.x);
+      return p0.y + (p1.y - p0.y) * t;
+    }
+  }
+
+  return points[points.length - 1].y;
+}
+
+function interpolateAcrossWeightPoints(weightPoints, weight, label) {
+  const points = weightPoints
+    .filter((point) => Number.isFinite(point.value))
+    .sort((a, b) => a.weight - b.weight);
+
+  if (points.length < 2) {
+    throw new Error(`Insufficient ${label} data across weights`);
+  }
+
+  const minWeight = points[0].weight;
+  const maxWeight = points[points.length - 1].weight;
+  if (weight < minWeight || weight > maxWeight) {
+    throw new Error(`${label} weight out of range (${format(minWeight, 1)}-${format(maxWeight, 1)} t)`);
+  }
+
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[i];
+    const p1 = points[i + 1];
+    if (weight >= p0.weight && weight <= p1.weight) {
+      if (p1.weight === p0.weight) return p0.value;
+      const t = (weight - p0.weight) / (p1.weight - p0.weight);
+      return p0.value + (p1.value - p0.value) * t;
+    }
+  }
+
+  return points[points.length - 1].value;
+}
+
+function getLrcCruiseState(weightT, flightLevel, windKt, perfAdjust = 0) {
+  if (!LRC_CRUISE_TABLE || !Array.isArray(LRC_CRUISE_TABLE.records)) {
+    throw new Error("LRC cruise table is missing");
+  }
+
+  const cruiseTableFl = flightLevel >= 100 ? flightLevel / 10 : flightLevel;
+  const altitudeAxis = LRC_CRUISE_TABLE.altitudesFL;
+  const tryInterp = (values, label) => {
+    try {
+      return interpolateFromAvailablePoints(altitudeAxis, values, cruiseTableFl, label);
+    } catch {
+      return NaN;
+    }
+  };
+  const metricsByWeight = LRC_CRUISE_TABLE.records.map((record) => ({
+    weight: record.weightT,
+    mach: tryInterp(record.machByAlt, `Mach at ${record.weightT}t`),
+    ias: tryInterp(record.kiasByAlt, `IAS at ${record.weightT}t`),
+    ffEng: tryInterp(record.ffEngByAlt, `FF/ENG at ${record.weightT}t`),
+  }));
+
+  const mach = interpolateAcrossWeightPoints(
+    metricsByWeight.map((m) => ({ weight: m.weight, value: m.mach })),
+    weightT,
+    "LRC Mach",
+  );
+  const ias = interpolateAcrossWeightPoints(
+    metricsByWeight.map((m) => ({ weight: m.weight, value: m.ias })),
+    weightT,
+    "LRC IAS",
+  );
+  const ffEng = interpolateAcrossWeightPoints(
+    metricsByWeight.map((m) => ({ weight: m.weight, value: m.ffEng })),
+    weightT,
+    "LRC FF/ENG",
+  );
+
+  const atmosphere = atmosphereFromPressureAltitude({
+    pressureAltitudeFt: flightLevel * 100,
+    tempMode: "isa-dev",
+    isaDeviationC: 0,
+    oatC: 0,
+  });
+  const tas = mach * atmosphere.speedOfSoundMps * MPS_TO_KT;
+  const gs = tas + windKt;
+  if (gs <= 0) {
+    throw new Error("Cruise ground speed <= 0 kt");
+  }
+
+  return {
+    ias,
+    mach,
+    tas,
+    ffEng: ffEng * (1 + perfAdjust),
+    fuelHr: ffEng * (1 + perfAdjust) * 2,
+    gs,
+  };
+}
+
+function getHoldState(weightT, flightLevel, windKt, perfAdjust = 0) {
+  const hold = holdingAt(weightT, flightLevel * 100, windKt, 0);
+  return {
+    ias: hold.kias,
+    mach: NaN,
+    tas: hold.tas,
+    ffEng: hold.ffEng * (1 + perfAdjust),
+    fuelHr: hold.fuelHr * (1 + perfAdjust),
+    gs: hold.gs,
+  };
+}
+
+function simulateToFixAndOptionalHold({
+  distanceNm,
+  startWeightT,
+  startFl,
+  cruiseWindKt,
+  holdWindKt,
+  levelChange,
+  switchToHoldSpeedAtMin,
+  holdAtFixMin,
+  perfAdjust,
+  dtMin = 1,
+}) {
+  let elapsedMin = 0;
+  let remainingNm = distanceNm;
+  let weightT = startWeightT;
+  let fuelBurnKg = 0;
+  let timeToFixMin = null;
+  let switchInfo = null;
+  let holdRemainingMin = holdAtFixMin;
+  let switched = false;
+
+  for (let guard = 0; guard < 20000; guard += 1) {
+    if (remainingNm <= 1e-7 && holdRemainingMin <= 1e-7) break;
+
+    const currentFl = getFlightLevelAtElapsed(startFl, levelChange, elapsedMin);
+    const inTransit = remainingNm > 1e-7;
+    const inHoldAtFix = !inTransit;
+
+    let phase = "hold-at-fix";
+    if (inTransit) {
+      if (elapsedMin >= switchToHoldSpeedAtMin) {
+        phase = "hold-speed-enroute";
+        if (!switched) {
+          switched = true;
+          switchInfo = {
+            atElapsedMin: elapsedMin,
+            remainingNmAtSwitch: remainingNm,
+          };
+        }
+      } else {
+        phase = "lrc-cruise";
+      }
+    }
+
+    let perf;
+    if (phase === "lrc-cruise") {
+      perf = getLrcCruiseState(weightT, currentFl, cruiseWindKt, perfAdjust);
+    } else if (phase === "hold-speed-enroute") {
+      perf = getHoldState(weightT, currentFl, holdWindKt, perfAdjust);
+    } else {
+      perf = getHoldState(weightT, currentFl, holdWindKt, perfAdjust);
+    }
+
+    let stepMin = dtMin;
+    const nextLevelChangeDelta =
+      levelChange.mode !== "none" && elapsedMin < levelChange.afterMin ? levelChange.afterMin - elapsedMin : Infinity;
+    const nextSwitchDelta =
+      inTransit && elapsedMin < switchToHoldSpeedAtMin ? switchToHoldSpeedAtMin - elapsedMin : Infinity;
+    stepMin = Math.min(stepMin, nextLevelChangeDelta, nextSwitchDelta);
+
+    if (phase === "lrc-cruise" || phase === "hold-speed-enroute") {
+      const timeToFixCandidate = (remainingNm / perf.gs) * 60;
+      stepMin = Math.min(stepMin, timeToFixCandidate);
+    } else if (inHoldAtFix) {
+      stepMin = Math.min(stepMin, holdRemainingMin);
+    }
+
+    if (!Number.isFinite(stepMin) || stepMin <= 0) {
+      throw new Error("Simulation step collapsed to zero");
+    }
+
+    const effectiveFuelHr =
+      phase === "hold-speed-enroute" ? perf.fuelHr * ENROUTE_HOLD_SPEED_FUEL_FACTOR : perf.fuelHr;
+    const burnKg = effectiveFuelHr * (stepMin / 60);
+    fuelBurnKg += burnKg;
+    weightT -= burnKg / 1000;
+
+    if (phase === "lrc-cruise" || phase === "hold-speed-enroute") {
+      remainingNm = Math.max(0, remainingNm - perf.gs * (stepMin / 60));
+      if (remainingNm <= 1e-7 && timeToFixMin === null) {
+        timeToFixMin = elapsedMin + stepMin;
+      }
+    } else {
+      holdRemainingMin = Math.max(0, holdRemainingMin - stepMin);
+    }
+
+    elapsedMin += stepMin;
+    if (weightT <= 0) {
+      throw new Error("Weight reduced below zero during simulation");
+    }
+  }
+
+  if (timeToFixMin === null) {
+    timeToFixMin = elapsedMin;
+  }
+
+  return {
+    timeToFixMin,
+    totalTimeMin: elapsedMin,
+    fuelBurnKg,
+    finalWeightT: weightT,
+    switchInfo,
+  };
+}
+
+function buildLoseTimeComparison({
+  distanceNm,
+  startWeightT,
+  startFl,
+  requiredDelayMin,
+  cruiseWindKt,
+  holdWindKt,
+  levelChange,
+  perfAdjust,
+}) {
+  if (distanceNm <= 0) throw new Error("Distance to fix must be > 0 NM");
+  if (requiredDelayMin < 0) throw new Error("Required delay must be >= 0 min");
+  if (startWeightT <= 0) throw new Error("Current weight must be > 0");
+  if (startFl <= 0) throw new Error("Current FL must be > 0");
+
+  validateLevelChange(levelChange, startFl);
+
+  const baseline = simulateToFixAndOptionalHold({
+    distanceNm,
+    startWeightT,
+    startFl,
+    cruiseWindKt,
+    holdWindKt,
+    levelChange,
+    switchToHoldSpeedAtMin: Number.POSITIVE_INFINITY,
+    holdAtFixMin: 0,
+    perfAdjust,
+  });
+
+  const optionA = simulateToFixAndOptionalHold({
+    distanceNm,
+    startWeightT,
+    startFl,
+    cruiseWindKt,
+    holdWindKt,
+    levelChange,
+    switchToHoldSpeedAtMin: Number.POSITIVE_INFINITY,
+    holdAtFixMin: requiredDelayMin,
+    perfAdjust,
+  });
+
+  const targetFixTime = baseline.timeToFixMin + requiredDelayMin;
+
+  const allHoldTransit = simulateToFixAndOptionalHold({
+    distanceNm,
+    startWeightT,
+    startFl,
+    cruiseWindKt,
+    holdWindKt,
+    levelChange,
+    switchToHoldSpeedAtMin: 0,
+    holdAtFixMin: 0,
+    perfAdjust,
+  });
+
+  let optionBTransit;
+  let residualHoldMin = 0;
+
+  if (targetFixTime > allHoldTransit.timeToFixMin) {
+    optionBTransit = allHoldTransit;
+    residualHoldMin = targetFixTime - allHoldTransit.timeToFixMin;
+  } else {
+    let low = 0;
+    let high = Math.max(targetFixTime + 60, baseline.timeToFixMin + 60);
+    let lowSim = allHoldTransit;
+    let highSim = simulateToFixAndOptionalHold({
+      distanceNm,
+      startWeightT,
+      startFl,
+      cruiseWindKt,
+      holdWindKt,
+      levelChange,
+      switchToHoldSpeedAtMin: high,
+      holdAtFixMin: 0,
+      perfAdjust,
+    });
+
+    if (lowSim.timeToFixMin < targetFixTime || highSim.timeToFixMin > targetFixTime) {
+      throw new Error("Unable to bracket switch point for enroute delay solution");
+    }
+
+    for (let i = 0; i < 24; i += 1) {
+      const mid = (low + high) / 2;
+      const midSim = simulateToFixAndOptionalHold({
+        distanceNm,
+        startWeightT,
+        startFl,
+        cruiseWindKt,
+        holdWindKt,
+        levelChange,
+        switchToHoldSpeedAtMin: mid,
+        holdAtFixMin: 0,
+        perfAdjust,
+      });
+
+      if (midSim.timeToFixMin > targetFixTime) {
+        low = mid;
+        lowSim = midSim;
+      } else {
+        high = mid;
+        highSim = midSim;
+      }
+    }
+
+    optionBTransit =
+      Math.abs(lowSim.timeToFixMin - targetFixTime) <= Math.abs(highSim.timeToFixMin - targetFixTime) ? lowSim : highSim;
+  }
+
+  const optionB = simulateToFixAndOptionalHold({
+    distanceNm,
+    startWeightT,
+    startFl,
+    cruiseWindKt,
+    holdWindKt,
+    levelChange,
+    switchToHoldSpeedAtMin: optionBTransit.switchInfo ? optionBTransit.switchInfo.atElapsedMin : Number.POSITIVE_INFINITY,
+    holdAtFixMin: residualHoldMin,
+    perfAdjust,
+  });
+
+  return {
+    baseline,
+    optionA,
+    optionB,
+    targetFixTime,
+    requiredDelayMin,
+    residualHoldMin,
+  };
+}
+
+function buildIsaBases() {
+  const bases = [
+    {
+      hBaseM: ISA_LAYER_BASES_M[0],
+      tBaseK: T0,
+      pBasePa: P0,
+      lapseRate: ISA_LAYER_LAPSE_RATES[0],
+    },
+  ];
+
+  for (let i = 1; i < ISA_LAYER_BASES_M.length; i += 1) {
+    const prev = bases[i - 1];
+    const hBaseM = ISA_LAYER_BASES_M[i];
+    const deltaH = hBaseM - prev.hBaseM;
+    const lapse = prev.lapseRate;
+
+    let tBaseK;
+    let pBasePa;
+    if (Math.abs(lapse) < 1e-12) {
+      tBaseK = prev.tBaseK;
+      pBasePa = prev.pBasePa * Math.exp((-G0 * deltaH) / (R_AIR * prev.tBaseK));
+    } else {
+      tBaseK = prev.tBaseK + lapse * deltaH;
+      pBasePa = prev.pBasePa * (tBaseK / prev.tBaseK) ** (-G0 / (R_AIR * lapse));
+    }
+
+    bases.push({
+      hBaseM,
+      tBaseK,
+      pBasePa,
+      lapseRate: ISA_LAYER_LAPSE_RATES[i],
+    });
+  }
+
+  return bases;
+}
+
+function geometricToGeopotentialMeters(geometricMeters) {
+  return (EARTH_RADIUS_M * geometricMeters) / (EARTH_RADIUS_M + geometricMeters);
+}
+
+function isaStateAtGeopotential(geopotentialM) {
+  if (geopotentialM > ISA_LAYER_BASES_M[ISA_LAYER_BASES_M.length - 1]) {
+    throw new Error("Altitude out of ISA model range (max 47,000 m geopotential)");
+  }
+
+  let layerIndex = 0;
+  for (let i = 0; i < ISA_BASES.length - 1; i += 1) {
+    if (geopotentialM >= ISA_BASES[i].hBaseM && geopotentialM < ISA_BASES[i + 1].hBaseM) {
+      layerIndex = i;
+      break;
+    }
+    if (geopotentialM >= ISA_BASES[i + 1].hBaseM) {
+      layerIndex = i + 1;
+    }
+  }
+
+  const base = ISA_BASES[layerIndex];
+  const deltaH = geopotentialM - base.hBaseM;
+  let isaTempK;
+  let pressurePa;
+
+  if (Math.abs(base.lapseRate) < 1e-12) {
+    isaTempK = base.tBaseK;
+    pressurePa = base.pBasePa * Math.exp((-G0 * deltaH) / (R_AIR * base.tBaseK));
+  } else {
+    isaTempK = base.tBaseK + base.lapseRate * deltaH;
+    pressurePa = base.pBasePa * (isaTempK / base.tBaseK) ** (-G0 / (R_AIR * base.lapseRate));
+  }
+
+  return { isaTempK, pressurePa };
+}
+
+function atmosphereFromPressureAltitude({ pressureAltitudeFt, tempMode, oatC, isaDeviationC }) {
+  if (!Number.isFinite(pressureAltitudeFt)) {
+    throw new Error("Invalid pressure altitude");
+  }
+
+  const geometricM = pressureAltitudeFt * FT_TO_M;
+  const geopotentialM = geometricToGeopotentialMeters(geometricM);
+  const { isaTempK, pressurePa } = isaStateAtGeopotential(geopotentialM);
+
+  let actualTempK;
+  if (tempMode === "isa-dev") {
+    actualTempK = isaTempK + isaDeviationC;
+  } else {
+    actualTempK = oatC + 273.15;
+  }
+
+  if (!Number.isFinite(actualTempK) || actualTempK <= 0) {
+    throw new Error("Temperature input is invalid for atmospheric computation");
+  }
+
+  return {
+    pressurePa,
+    isaTempK,
+    actualTempK,
+    speedOfSoundMps: Math.sqrt(GAMMA * R_AIR * actualTempK),
+    geopotentialM,
+  };
+}
+
+function iasToMachTas({ iasKt, pressurePa, speedOfSoundMps }) {
+  if (!Number.isFinite(iasKt) || iasKt < 0) throw new Error("IAS must be >= 0");
+
+  const vCas = iasKt * KT_TO_MPS;
+  const qc = P0 * ((1 + ((GAMMA - 1) / 2) * (vCas / A0) ** 2) ** (GAMMA / (GAMMA - 1)) - 1);
+  const mach = Math.sqrt((2 / (GAMMA - 1)) * ((qc / pressurePa + 1) ** ((GAMMA - 1) / GAMMA) - 1));
+  const tasKt = mach * speedOfSoundMps * MPS_TO_KT;
+
+  return { iasKt, mach, tasKt };
+}
+
+function machToIasTas({ mach, pressurePa, speedOfSoundMps }) {
+  if (!Number.isFinite(mach) || mach < 0) throw new Error("Mach must be >= 0");
+
+  const tasKt = mach * speedOfSoundMps * MPS_TO_KT;
+  const qc = pressurePa * ((1 + ((GAMMA - 1) / 2) * mach ** 2) ** (GAMMA / (GAMMA - 1)) - 1);
+  const casMps = A0 * Math.sqrt((2 / (GAMMA - 1)) * ((qc / P0 + 1) ** ((GAMMA - 1) / GAMMA) - 1));
+
+  return { iasKt: casMps * MPS_TO_KT, mach, tasKt };
+}
+
+function tasToIasMach({ tasKt, pressurePa, speedOfSoundMps }) {
+  if (!Number.isFinite(tasKt) || tasKt < 0) throw new Error("TAS must be >= 0");
+
+  const mach = (tasKt * KT_TO_MPS) / speedOfSoundMps;
+  const qc = pressurePa * ((1 + ((GAMMA - 1) / 2) * mach ** 2) ** (GAMMA / (GAMMA - 1)) - 1);
+  const casMps = A0 * Math.sqrt((2 / (GAMMA - 1)) * ((qc / P0 + 1) ** ((GAMMA - 1) / GAMMA) - 1));
+
+  return { iasKt: casMps * MPS_TO_KT, mach, tasKt };
+}
+
+function timeTextToMinutes(t) {
+  const [h, m] = String(t).split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+  return h * 60 + m;
+}
+
+function renderRows(target, rows) {
+  target.innerHTML = rows
+    .map(([k, v]) => {
+      if (k === "__spacer__") {
+        return '<div class="result-spacer"></div>';
+      }
+      return `<div class="result-row"><span class="result-key">${k}</span><span class="result-value">${v}</span></div>`;
+    })
+    .join("");
+}
+
+function renderError(target, message) {
+  target.innerHTML = `<div class="error">${message}</div>`;
+}
+
+function bindShortTrip() {
+  const form = document.querySelector("#short-trip-form");
+  const out = document.querySelector("#short-trip-out");
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    try {
+      const gnm = parseNum(document.querySelector("#st-gnm").value);
+      const wind = parseNum(document.querySelector("#st-wind").value);
+      const weight = parseNum(document.querySelector("#st-weight").value);
+      const perfAdjust = getGlobalPerfAdjust();
+      const holdingMin = parseNum(document.querySelector("#st-hold-min").value);
+
+      const anm = shortTripAnmFromGnm(gnm, wind);
+      const result = shortTripFuelAndAlt(anm, weight, perfAdjust, holdingMin);
+
+      renderRows(out, [
+        ["Air Distance (ANM)", `${format(anm, 2)} nm`],
+        ["Flight Fuel", `${format(result.flightFuelKg, 0)} kg`],
+        ["FRF (30 min hold @ 1500 ft)", `${format(result.frfKg, 0)} kg`],
+        ["Contingency Fuel (5%, min 350, max 1200)", `${format(result.contingencyKg, 0)} kg`],
+        [`Additional Holding Fuel (${format(holdingMin, 1)} min)`, `${format(result.extraHoldingKg, 0)} kg`],
+        ["Approach Fuel", `${format(result.fixedAllowanceKg, 0)} kg`],
+        ["Total Fuel Required", `${format(result.totalFuelKg, 0)} kg`],
+        ["Suggested Alt", `${format(result.altitude, 0)} ft`],
+        ["Time", formatMinutes(result.timeMinutes)],
+      ]);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  form.dispatchEvent(new Event("submit"));
+}
+
+function bindLongRange() {
+  const form = document.querySelector("#long-range-form");
+  const out = document.querySelector("#long-range-out");
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    try {
+      const gnm = parseNum(document.querySelector("#lr-gnm").value);
+      const wind = parseNum(document.querySelector("#lr-wind").value);
+      const weight = parseNum(document.querySelector("#lr-weight").value);
+      const perfAdjust = getGlobalPerfAdjust();
+      const holdingMin = parseNum(document.querySelector("#lr-hold-min").value);
+
+      const anm = longRangeAnmFromGnm(gnm, wind);
+      const result = longRangeFuel(anm, weight, perfAdjust, holdingMin);
+
+      renderRows(out, [
+        ["Air Distance (ANM)", `${format(anm, 2)} nm`],
+        ["Flight Fuel", `${format(result.flightFuel1000Kg, 3)} x 1000 kg`],
+        ["Flight Fuel (kg)", `${format(result.flightFuel1000Kg * 1000, 0)} kg`],
+        ["FRF (30 min hold @ 1500 ft)", `${format(result.frfKg, 0)} kg`],
+        ["Contingency Fuel (5%, min 350, max 1200)", `${format(result.contingencyKg, 0)} kg`],
+        [`Additional Holding Fuel (${format(holdingMin, 1)} min)`, `${format(result.extraHoldingKg, 0)} kg`],
+        ["Approach Fuel", `${format(result.fixedAllowanceKg, 0)} kg`],
+        ["Total Fuel Required", `${format(result.totalFuelKg, 0)} kg`],
+        ["Time", formatMinutes(result.timeMinutes)],
+      ]);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  form.dispatchEvent(new Event("submit"));
+}
+
+function bindHolding() {
+  const form = document.querySelector("#holding-form");
+  const out = document.querySelector("#holding-out");
+  const timingModeEl = document.querySelector("#hold-timing-mode");
+  const totalHoldEl = document.querySelector("#hold-total-min");
+  const inboundLegEl = document.querySelector("#hold-inbound-min");
+  let lastTotalHoldValue = totalHoldEl.value;
+  let lastInboundLegValue = inboundLegEl.value;
+
+  function toggleTimingInputs() {
+    const givenTotal = timingModeEl.value === "given-total";
+    if (givenTotal) {
+      if (!inboundLegEl.disabled && inboundLegEl.value !== "") {
+        lastInboundLegValue = inboundLegEl.value;
+      }
+      inboundLegEl.value = "";
+      if (totalHoldEl.value === "" && lastTotalHoldValue !== "") {
+        totalHoldEl.value = lastTotalHoldValue;
+      }
+    } else {
+      if (!totalHoldEl.disabled && totalHoldEl.value !== "") {
+        lastTotalHoldValue = totalHoldEl.value;
+      }
+      totalHoldEl.value = "";
+      if (inboundLegEl.value === "" && lastInboundLegValue !== "") {
+        inboundLegEl.value = lastInboundLegValue;
+      }
+    }
+    totalHoldEl.disabled = !givenTotal;
+    inboundLegEl.disabled = givenTotal;
+  }
+
+  timingModeEl.addEventListener("change", () => {
+    toggleTimingInputs();
+    form.dispatchEvent(new Event("submit"));
+  });
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    try {
+      const weight = parseNum(document.querySelector("#hold-weight").value);
+      const altitude = parseNum(document.querySelector("#hold-alt").value);
+      const fuelAvailable = parseNum(document.querySelector("#fuel-available").value);
+      const perfAdjust = getGlobalPerfAdjust();
+      const timingMode = timingModeEl.value;
+      const totalHoldMin = parseNum(totalHoldEl.value);
+      const inboundLegMin = parseNum(inboundLegEl.value);
+      const holdSide = String(document.querySelector("#hold-side").value || "R").toUpperCase();
+      const inboundCourseDeg = parseNum(document.querySelector("#hold-inbound-course").value);
+      const windFromDeg = parseNum(document.querySelector("#hold-wind-dir").value);
+      const windSpeedKt = parseNum(document.querySelector("#hold-wind-speed").value);
+      const timingFl = parseNum(document.querySelector("#hold-timing-fl").value);
+      const timingIasKt = parseNum(document.querySelector("#hold-timing-ias").value);
+      const timingIsaDevC = parseNum(document.querySelector("#hold-timing-isa-dev").value);
+
+      const hold = holdingAt(weight, altitude, 0, perfAdjust);
+      const timing = calculateHoldTiming({
+        mode: timingMode,
+        totalHoldMin,
+        inboundLegMin,
+        holdSide,
+        inboundCourseDeg,
+        windFromDeg,
+        windSpeedKt,
+        flightLevel: timingFl,
+        iasKt: timingIasKt,
+        isaDeviationC: timingIsaDevC,
+      });
+
+      const endurance = (fuelAvailable / hold.fuelHr) * 60;
+
+      renderRows(out, [
+        ["Hold KIAS / TAS", `${format(hold.kias, 1)} / ${format(hold.tas, 1)} kt`],
+        ["Hold FF_ENG / Fuel Hr", `${format(hold.ffEng, 0)} / ${format(hold.fuelHr, 0)} kg/h`],
+        ["Hold less 5%", `${format(hold.lessFivePct, 0)} kg/h`],
+        ["Hold Endurance", formatMinutes(endurance)],
+        ["__spacer__", ""],
+        ["Hold Timing Input Mode", timingMode === "given-total" ? "Given Total Hold Time" : "Given Inbound Leg Time"],
+        [
+          "Inbound Leg (actual GS time to fix)",
+          `${format(timing.inboundLegMin, 2)} min (${formatMinutes(timing.inboundLegMin)})`,
+        ],
+        ["Outbound Leg (wind-corrected)", `${format(timing.outboundLegMin, 2)} min`],
+        [
+          "Total Hold Time (fix crossing to fix crossing)",
+          `${format(timing.totalHoldMin, 2)} min (${formatMinutes(timing.totalHoldMin)})`,
+        ],
+        ["Timing IAS / TAS / Mach", `${format(timing.iasKt, 0)} / ${format(timing.tasKt, 1)} kt / ${format(timing.mach, 3)}`],
+        ["Inbound / Outbound Track", `${format(timing.inboundTrackDeg, 0)}° / ${format(timing.outboundTrackDeg, 0)}°`],
+        ["Inbound / Outbound Heading", `${format(timing.inboundHeadingDeg, 1)}° / ${format(timing.outboundHeadingDeg, 1)}°`],
+        ["Inbound/Outbound GS Ratio", `${format(timing.gsRatioInToOut, 3)}`],
+        [
+          "Inbound / Outbound GS",
+          `${format(timing.inboundGroundSpeedKt, 1)} / ${format(timing.outboundGroundSpeedKt, 1)} kt`,
+        ],
+        ["Inbound / Outbound Leg Distance", `${format(timing.inboundLegNm, 2)} / ${format(timing.outboundLegNm, 2)} NM`],
+        ["Turn 1 / Turn 2", `${format(timing.turn1Deg, 1)}° (${format(timing.turn1Min, 2)} min) / ${format(timing.turn2Deg, 1)}° (${format(timing.turn2Min, 2)} min)`],
+        ["Turn Total", `${format(timing.totalTurnMin, 2)} min`],
+        [
+          "Turn Rate Used",
+          `${format(timing.turnRateDegPerSec, 2)} °/s (${timing.turnModel}; bank-25 capability ${format(timing.bankLimitedTurnRateDegPerSec, 2)} °/s)`,
+        ],
+      ]);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  toggleTimingInputs();
+  form.dispatchEvent(new Event("submit"));
+}
+
+function bindLoseTime() {
+  const form = document.querySelector("#lose-time-form");
+  const out = document.querySelector("#lose-time-out");
+  const levelModeEl = document.querySelector("#lt-level-change-mode");
+  const changeAfterEl = document.querySelector("#lt-change-after-min");
+  const newFlEl = document.querySelector("#lt-new-fl");
+
+  function toggleInputs() {
+    const levelNone = levelModeEl.value === "none";
+    changeAfterEl.disabled = levelNone;
+    newFlEl.disabled = levelNone;
+  }
+
+  levelModeEl.addEventListener("change", () => {
+    toggleInputs();
+    form.dispatchEvent(new Event("submit"));
+  });
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    try {
+      const distanceNm = parseNum(document.querySelector("#lt-distance").value);
+      const startWeightT = parseNum(document.querySelector("#lt-weight").value);
+      const startFl = parseNum(document.querySelector("#lt-fl").value);
+      const requiredDelayMin = parseNum(document.querySelector("#lt-delay").value);
+      const windKt = parseNum(document.querySelector("#lt-wind").value);
+      const perfAdjust = getGlobalPerfAdjust();
+      const levelChangeMode = levelModeEl.value;
+      const levelChange = {
+        mode: levelChangeMode,
+        afterMin: parseNum(changeAfterEl.value),
+        newFl: parseNum(newFlEl.value),
+      };
+
+      const comparison = buildLoseTimeComparison({
+        distanceNm,
+        startWeightT,
+        startFl,
+        requiredDelayMin,
+        cruiseWindKt: windKt,
+        holdWindKt: windKt,
+        levelChange,
+        perfAdjust,
+      });
+
+      const switchInfo = comparison.optionB.switchInfo;
+      const switchText = switchInfo
+        ? `${formatMinutes(switchInfo.atElapsedMin)} elapsed, ${format(switchInfo.remainingNmAtSwitch, 1)} NM to fix`
+        : "No enroute speed reduction needed";
+
+      renderRows(out, [
+        ["Required Delay", `${format(requiredDelayMin, 2)} min`],
+        ["Baseline LRC Time to Fix", formatMinutes(comparison.baseline.timeToFixMin)],
+        ["Baseline LRC Fuel to Fix", `${format(comparison.baseline.fuelBurnKg, 0)} kg`],
+        ["__spacer__", ""],
+        ["Option A Time (LRC + Hold at Fix)", formatMinutes(comparison.optionA.totalTimeMin)],
+        ["Option A Fuel Burn", `${format(comparison.optionA.fuelBurnKg, 0)} kg`],
+        ["Option A Delay Achieved", `${format(comparison.optionA.totalTimeMin - comparison.baseline.timeToFixMin, 2)} min`],
+        ["__spacer__", ""],
+        ["Option B Time (Enroute Hold-Speed)", formatMinutes(comparison.optionB.totalTimeMin)],
+        ["Option B Fuel Burn", `${format(comparison.optionB.fuelBurnKg, 0)} kg`],
+        ["Option B Delay Achieved", `${format(comparison.optionB.totalTimeMin - comparison.baseline.timeToFixMin, 2)} min`],
+        ["Option B Speed Reduction Start", switchText],
+        ["Option B Residual Hold at Fix", `${format(comparison.residualHoldMin, 2)} min`],
+        ["__spacer__", ""],
+        ["Fuel Difference (A - B)", `${format(comparison.optionA.fuelBurnKg - comparison.optionB.fuelBurnKg, 0)} kg`],
+        ["Final Weight Option A / B", `${format(comparison.optionA.finalWeightT, 2)} / ${format(comparison.optionB.finalWeightT, 2)} t`],
+      ]);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  toggleInputs();
+  form.dispatchEvent(new Event("submit"));
+}
+
+function bindConversion() {
+  const form = document.querySelector("#conversion-form");
+  const out = document.querySelector("#conversion-out");
+  const modeEl = document.querySelector("#conv-mode");
+  const iasEl = document.querySelector("#conv-ias");
+  const machEl = document.querySelector("#conv-mach");
+  const tasEl = document.querySelector("#conv-tas");
+  const flEl = document.querySelector("#conv-fl");
+  const tempModeEl = document.querySelector("#conv-temp-mode");
+  const oatEl = document.querySelector("#conv-oat");
+  const isaDevEl = document.querySelector("#conv-isa-dev");
+
+  function toggleInputs() {
+    const mode = modeEl.value;
+    iasEl.disabled = mode !== "ias";
+    machEl.disabled = mode !== "mach";
+    tasEl.disabled = mode !== "tas";
+
+    flEl.disabled = false;
+
+    const tempMode = tempModeEl.value;
+    oatEl.disabled = tempMode !== "oat";
+    isaDevEl.disabled = tempMode !== "isa-dev";
+  }
+
+  modeEl.addEventListener("change", () => {
+    toggleInputs();
+    form.dispatchEvent(new Event("submit"));
+  });
+  tempModeEl.addEventListener("change", () => {
+    toggleInputs();
+    form.dispatchEvent(new Event("submit"));
+  });
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    try {
+      const tempMode = tempModeEl.value;
+      const fl = parseNum(flEl.value);
+      const oatC = parseNum(oatEl.value);
+      const isaDeviationC = parseNum(isaDevEl.value);
+      const mode = modeEl.value;
+
+      if (!Number.isFinite(fl)) {
+        throw new Error("Invalid flight level");
+      }
+      const pressureAltitudeFt = fl * 100;
+      const atmosphere = atmosphereFromPressureAltitude({
+        pressureAltitudeFt,
+        tempMode,
+        oatC,
+        isaDeviationC,
+      });
+
+      let result;
+      if (mode === "ias") {
+        result = iasToMachTas({
+          iasKt: parseNum(iasEl.value),
+          pressurePa: atmosphere.pressurePa,
+          speedOfSoundMps: atmosphere.speedOfSoundMps,
+        });
+      } else if (mode === "mach") {
+        result = machToIasTas({
+          mach: parseNum(machEl.value),
+          pressurePa: atmosphere.pressurePa,
+          speedOfSoundMps: atmosphere.speedOfSoundMps,
+        });
+      } else {
+        result = tasToIasMach({
+          tasKt: parseNum(tasEl.value),
+          pressurePa: atmosphere.pressurePa,
+          speedOfSoundMps: atmosphere.speedOfSoundMps,
+        });
+      }
+
+      renderRows(out, [
+        ["IAS", `${format(result.iasKt, 2)} kt`],
+        ["Mach", format(result.mach, 3)],
+        ["TAS", `${format(result.tasKt, 2)} kt`],
+        ["Pressure Altitude Used", `${format(pressureAltitudeFt, 0)} ft`],
+        ["Geopotential Altitude", `${format(atmosphere.geopotentialM * M_TO_FT, 0)} ft`],
+        ["ISA Temp", `${format(atmosphere.isaTempK - 273.15, 1)} °C`],
+        ["Actual Temp", `${format(atmosphere.actualTempK - 273.15, 1)} °C`],
+      ]);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  toggleInputs();
+  form.dispatchEvent(new Event("submit"));
+}
+
+function bindGlobalSettings() {
+  const globalPerfEl = document.querySelector("#global-perf-adjust");
+  if (!globalPerfEl) return;
+
+  const refreshAll = () => {
+    [
+      "#short-trip-form",
+      "#long-range-form",
+      "#holding-form",
+      "#lose-time-form",
+    ].forEach((selector) => {
+      const form = document.querySelector(selector);
+      if (form) form.dispatchEvent(new Event("submit"));
+    });
+  };
+
+  globalPerfEl.addEventListener("change", refreshAll);
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  if (!window.isSecureContext) return;
+  navigator.serviceWorker.register("./sw.js").catch(() => {});
+}
+
+bindShortTrip();
+bindLongRange();
+bindHolding();
+bindLoseTime();
+bindConversion();
+bindGlobalSettings();
+registerServiceWorker();

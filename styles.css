@@ -1,0 +1,157 @@
+:root {
+  --bg: #f4f8fb;
+  --panel: #ffffff;
+  --panel-border: #c5d4e1;
+  --text: #102336;
+  --muted: #4a657c;
+  --accent: #005c99;
+  --accent-2: #e07a0e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 5% 10%, rgba(0, 92, 153, 0.12), transparent 28%),
+    radial-gradient(circle at 95% 5%, rgba(224, 122, 14, 0.14), transparent 25%),
+    linear-gradient(180deg, #eef4f9 0%, #f7fbff 45%, #f4f8fb 100%);
+  min-height: 100vh;
+}
+
+.layout {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 2.5rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.hero {
+  background: linear-gradient(120deg, #003b63, #005c99 62%, #0f77b7);
+  border-radius: 16px;
+  padding: 1.2rem 1rem;
+  color: #fff;
+}
+
+.hero h1 {
+  margin: 0.2rem 0;
+  font-family: "Avenir Next Condensed", "Avenir Next", "Segoe UI", sans-serif;
+  letter-spacing: 0.01em;
+  font-size: clamp(1.7rem, 5vw, 2.5rem);
+}
+
+.hero p {
+  margin: 0;
+  max-width: 70ch;
+}
+
+.eyebrow {
+  font-family: "Avenir Next Condensed", "Avenir Next", "Segoe UI", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.9;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  padding: 1rem;
+  box-shadow: 0 5px 18px rgba(7, 47, 83, 0.08);
+}
+
+.panel h2 {
+  margin: 0 0 0.7rem;
+  font-family: "Avenir Next Condensed", "Avenir Next", "Segoe UI", sans-serif;
+  letter-spacing: 0.02em;
+  color: #083f67;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.65rem;
+  align-items: end;
+}
+
+label {
+  display: grid;
+  gap: 0.2rem;
+  font-weight: 600;
+  color: #1d3f59;
+}
+
+input,
+select,
+button {
+  height: 2.3rem;
+  border-radius: 8px;
+  border: 1px solid #aac1d3;
+  font: inherit;
+  padding: 0 0.6rem;
+}
+
+input:focus,
+select:focus {
+  outline: 2px solid rgba(0, 92, 153, 0.2);
+  border-color: #0f77b7;
+}
+
+button {
+  background: linear-gradient(180deg, #e68d22, var(--accent-2));
+  border: none;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(0.97);
+}
+
+.results {
+  margin-top: 0.7rem;
+  border-top: 1px solid #d8e3ec;
+  padding-top: 0.7rem;
+  display: grid;
+  gap: 0.28rem;
+}
+
+.result-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.result-spacer {
+  height: 0.6rem;
+}
+
+.result-key {
+  color: var(--muted);
+}
+
+.result-value {
+  font-weight: 700;
+}
+
+.error {
+  color: #8d1919;
+  font-weight: 700;
+}
+
+@media (max-width: 680px) {
+  .layout {
+    padding: 0.8rem;
+  }
+
+  .panel,
+  .hero {
+    border-radius: 12px;
+  }
+}
