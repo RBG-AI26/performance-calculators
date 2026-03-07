@@ -78,6 +78,43 @@
         <div id="long-range-out" class="results"></div>
       </section>
 
+      <section class="panel" aria-labelledby="lrc-altitude-heading">
+        <h2 id="lrc-altitude-heading">LRC Altitude Limits</h2>
+        <form id="lrc-altitude-form" class="grid">
+          <label>
+            Weight (t)
+            <input type="number" step="0.1" min="0" id="lrc-alt-weight" value="200" />
+          </label>
+          <label>
+            ISA Deviation (°C)
+            <input type="number" step="0.1" id="lrc-alt-isa-dev" value="10" />
+          </label>
+          <label>
+            Temperature (°C)
+            <input type="number" step="0.1" id="lrc-alt-temp" value="" />
+          </label>
+          <label>
+            Current Alt/FL <span class="label-note" id="lrc-alt-current-range"></span>
+            <input type="number" step="1" min="0" id="lrc-alt-current" value="370" />
+          </label>
+          <div class="grid-subheading">Optional</div>
+          <label>
+            Nominated Optimum Alt/FL <span class="label-note" id="lrc-alt-target-range"></span>
+            <input type="number" step="1" min="0" id="lrc-alt-target" value="" />
+          </label>
+          <label>
+            Engine out Cruise Distance <span class="label-note" id="lrc-alt-drift-gnm-range"></span>
+            <input type="number" step="1" min="0" id="lrc-alt-drift-gnm" value="400" />
+          </label>
+          <label>
+            Driftdown Wind (kt, +tailwind / -headwind) <span class="label-note" id="lrc-alt-drift-wind-range"></span>
+            <input type="number" step="1" id="lrc-alt-drift-wind" value="0" />
+          </label>
+          <button type="submit">Calculate</button>
+        </form>
+        <div id="lrc-altitude-out" class="results"></div>
+      </section>
+
       <section class="panel" aria-labelledby="diversion-heading">
         <h2 id="diversion-heading">Diversion (LRC)</h2>
         <p class="module-note">LRC - Descent .85/310/250</p>
@@ -91,7 +128,7 @@
             <input type="number" step="1" id="div-wind" value="0" />
           </label>
           <label>
-            Diversion Altitude (ft or FL, e.g. 20000 or 200)
+            Alt/FL <span class="label-note" id="div-alt-range"></span>
             <input type="number" step="100" id="div-alt" value="20000" />
           </label>
           <label>
@@ -115,7 +152,7 @@
             <input type="number" step="0.1" min="0" id="hold-weight" value="160" />
           </label>
           <label>
-            Altitude (ft or FL, e.g. 30000 or 300)
+            Alt/FL <span class="label-note" id="hold-alt-range"></span>
             <input type="number" step="100" min="0" id="hold-alt" value="30000" />
           </label>
           <label>
@@ -123,19 +160,12 @@
             <input type="number" step="1" min="0" id="fuel-available" value="3500" />
           </label>
           <label>
-            Hold Timing Mode
-            <select id="hold-timing-mode">
-              <option value="given-total" selected>Given Total Hold Time</option>
-              <option value="given-inbound">Given Inbound Leg Time</option>
-            </select>
-          </label>
-          <label>
             Total Hold Required (min)
             <input type="number" step="0.1" min="0" id="hold-total-min" value="20" />
           </label>
           <label>
             Inbound Leg Time (min)
-            <input type="number" step="0.1" min="0" id="hold-inbound-min" value="1" />
+            <input type="number" step="0.1" min="0" id="hold-inbound-min" value="" />
           </label>
           <label>
             Inbound Course (deg)
@@ -161,8 +191,16 @@
             <input type="number" step="1" min="0" id="hold-timing-ias" placeholder="Auto from hold table" />
           </label>
           <label>
-            Timing ISA Deviation (°C)
-            <input type="number" step="1" id="hold-timing-isa-dev" value="0" />
+            ISA Deviation (°C)
+            <input type="number" step="0.1" id="hold-timing-isa-dev" value="0" />
+          </label>
+          <label>
+            Temperature (°C)
+            <input type="number" step="0.1" id="hold-timing-temp" value="" />
+          </label>
+          <label>
+            Bank Limit (deg)
+            <input type="number" step="0.1" min="0.1" id="hold-bank-limit" value="" placeholder="25" />
           </label>
           <button type="submit">Calculate</button>
         </form>
@@ -181,7 +219,7 @@
             <input type="number" step="0.1" id="lt-weight" value="200" />
           </label>
           <label>
-            Current Flight Level (FL, e.g. 370 or 37000 ft)
+            Current Alt/FL <span class="label-note" id="lt-fl-range"></span>
             <input type="number" step="1" id="lt-fl" value="370" />
           </label>
           <label>
@@ -205,7 +243,7 @@
             <input type="number" step="1" id="lt-change-after-min" value="0" />
           </label>
           <label>
-            New Flight Level (FL, e.g. 390 or 39000 ft)
+            New Alt/FL <span class="label-note" id="lt-new-fl-range"></span>
             <input type="number" step="1" id="lt-new-fl" value="390" />
           </label>
           <button type="submit">Calculate</button>
@@ -237,18 +275,11 @@
             <input type="number" step="0.1" id="conv-tas" value="485" />
           </label>
           <label>
-            Flight Level (e.g. 370 or 37000 ft)
+            Alt/FL <span class="label-note" id="conv-fl-range"></span>
             <input type="number" step="1" id="conv-fl" value="370" />
           </label>
           <label>
-            Temperature Source
-            <select id="conv-temp-mode">
-              <option value="oat" selected>OAT</option>
-              <option value="isa-dev">ISA Deviation</option>
-            </select>
-          </label>
-          <label>
-            OAT (°C)
+            Temperature (°C)
             <input type="number" step="0.1" id="conv-oat" value="-56" />
           </label>
           <label>
@@ -263,6 +294,8 @@
 
     <script src="./data.js"></script>
     <script src="./lrc_data.js"></script>
+    <script src="./lrc_altitude_limits_data.js"></script>
+    <script src="./driftdown_data.js"></script>
     <script src="./flaps_up_data.js"></script>
     <script src="./diversion_data.js"></script>
     <script src="./app.js"></script>

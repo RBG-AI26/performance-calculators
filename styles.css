@@ -85,11 +85,31 @@ body {
   align-items: end;
 }
 
+.grid-subheading {
+  grid-column: 1 / -1;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #4a657c;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-top: 0.1rem;
+}
+
 label {
   display: grid;
   gap: 0.2rem;
   font-weight: 600;
   color: #1d3f59;
+}
+
+.label-note {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #4a657c;
+}
+
+input.auto-derived {
+  color: #9aa3ad;
 }
 
 .global-setting-field {
@@ -140,6 +160,15 @@ button:hover {
 
 .result-spacer {
   height: 0.6rem;
+}
+
+.result-section-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #3f5f7c;
+  padding-top: 0.1rem;
 }
 
 .result-key {

@@ -1,7 +1,14 @@
 import fs from "node:fs";
 import vm from "node:vm";
 
-const files = ["data.js", "lrc_data.js", "flaps_up_data.js", "diversion_data.js"];
+const files = [
+  "data.js",
+  "lrc_data.js",
+  "lrc_altitude_limits_data.js",
+  "driftdown_data.js",
+  "flaps_up_data.js",
+  "diversion_data.js",
+];
 const context = { window: {} };
 vm.createContext(context);
 
@@ -10,7 +17,14 @@ for (const file of files) {
   vm.runInContext(source, context, { filename: file });
 }
 
-const required = ["TABLE_DATA", "LRC_CRUISE_TABLE", "FLAPS_UP_TABLE", "DIVERSION_LRC_TABLE"];
+const required = [
+  "TABLE_DATA",
+  "LRC_CRUISE_TABLE",
+  "LRC_ALTITUDE_LIMITS_TABLE",
+  "DRIFTDOWN_TABLE",
+  "FLAPS_UP_TABLE",
+  "DIVERSION_LRC_TABLE",
+];
 for (const key of required) {
   if (!(key in context.window)) {
     throw new Error(`Missing window.${key}`);

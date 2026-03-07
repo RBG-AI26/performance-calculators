@@ -1,5 +1,7 @@
 const TABLE_DATA = window.TABLE_DATA;
 const LRC_CRUISE_TABLE = window.LRC_CRUISE_TABLE;
+const LRC_ALTITUDE_LIMITS_TABLE = window.LRC_ALTITUDE_LIMITS_TABLE;
+const DRIFTDOWN_TABLE = window.DRIFTDOWN_TABLE;
 const FLAPS_UP_TABLE = window.FLAPS_UP_TABLE;
 const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 
@@ -21,7 +23,7 @@ const ISA_LAYER_LAPSE_RATES = [-0.0065, 0, 0.001, 0.0028, 0];
 const ISA_BASES = buildIsaBases();
 const DEG_PER_RAD = 180 / Math.PI;
 const RAD_PER_DEG = Math.PI / 180;
-const HOLD_MAX_BANK_DEG = 25;
+const DEFAULT_HOLD_BANK_DEG = 25;
 const FIXED_ALLOWANCE_KG = 200;
 const MIN_CONTINGENCY_KG = 350;
 const MAX_CONTINGENCY_KG = 1200;
@@ -34,19 +36,98 @@ function parseNum(value) {
   return Number.isFinite(n) ? n : NaN;
 }
 
-function normalizeFlightLevelInput(rawValue, label = "Flight level") {
-  if (!Number.isFinite(rawValue) || rawValue <= 0) {
+function parseAltOrFlInput(rawInput, label = "Alt/FL") {
+  const rawText = String(rawInput ?? "").trim();
+  if (rawText === "") {
+    throw new Error(`${label} must be entered`);
+  }
+
+  const value = Number(rawText);
+  if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`${label} must be > 0`);
   }
-  return rawValue >= 1000 ? rawValue / 100 : rawValue;
+
+  // Rule: exactly 3-digit integer input is FL, otherwise feet.
+  const absValue = Math.abs(value);
+  const integerDigits = Math.trunc(absValue).toString().length;
+  const isThreeDigitFl = Number.isInteger(value) && integerDigits === 3;
+  const altitudeFt = isThreeDigitFl ? value * 100 : value;
+  const flightLevel = altitudeFt / 100;
+
+  return {
+    rawText,
+    value,
+    isThreeDigitFl,
+    altitudeFt,
+    flightLevel,
+  };
 }
 
-function normalizeAltitudeFtInput(rawValue, label = "Altitude") {
-  if (!Number.isFinite(rawValue) || rawValue <= 0) {
-    throw new Error(`${label} must be > 0 ft`);
+function normalizeFlightLevelInput(rawInput, label = "Alt/FL") {
+  return parseAltOrFlInput(rawInput, label).flightLevel;
+}
+
+function normalizeAltitudeFtInput(rawInput, label = "Alt/FL") {
+  return parseAltOrFlInput(rawInput, label).altitudeFt;
+}
+
+function getIsaTempCAtPressureAltitude(pressureAltitudeFt) {
+  const isaAtmosphere = atmosphereFromPressureAltitude({
+    pressureAltitudeFt,
+    tempMode: "isa-dev",
+    isaDeviationC: 0,
+    oatC: 0,
+  });
+  return isaAtmosphere.isaTempK - 273.15;
+}
+
+function resolveTemperaturePair({ isaDeviationRaw, temperatureRaw, lastSource = "isa-dev", pressureAltitudeFt, label = "Temperature" }) {
+  const isaText = String(isaDeviationRaw ?? "").trim();
+  const tempText = String(temperatureRaw ?? "").trim();
+
+  let sourceUsed;
+  if (isaText !== "" && tempText === "") {
+    sourceUsed = "isa-dev";
+  } else if (tempText !== "" && isaText === "") {
+    sourceUsed = "temp";
+  } else if (isaText !== "" && tempText !== "") {
+    sourceUsed = lastSource === "temp" ? "temp" : "isa-dev";
+  } else {
+    throw new Error(`${label}: enter ISA deviation or Temperature`);
   }
-  // Treat 3-digit entries as FL shorthand (e.g., 370 -> 37000 ft).
-  return rawValue < 1000 ? rawValue * 100 : rawValue;
+
+  const isaTempC = getIsaTempCAtPressureAltitude(pressureAltitudeFt);
+  let isaDeviationC;
+  let temperatureC;
+  if (sourceUsed === "isa-dev") {
+    isaDeviationC = parseNum(isaText);
+    if (!Number.isFinite(isaDeviationC)) {
+      throw new Error(`${label}: ISA deviation is invalid`);
+    }
+    temperatureC = isaTempC + isaDeviationC;
+  } else {
+    temperatureC = parseNum(tempText);
+    if (!Number.isFinite(temperatureC)) {
+      throw new Error(`${label}: temperature is invalid`);
+    }
+    isaDeviationC = temperatureC - isaTempC;
+  }
+
+  return {
+    sourceUsed,
+    isaDeviationC,
+    temperatureC,
+    isaTempC,
+  };
+}
+
+function applyTemperatureFieldStyle({ sourceUsed, isaDeviationEl, temperatureEl }) {
+  if (isaDeviationEl) {
+    isaDeviationEl.classList.toggle("auto-derived", sourceUsed === "temp");
+  }
+  if (temperatureEl) {
+    temperatureEl.classList.toggle("auto-derived", sourceUsed === "isa-dev");
+  }
 }
 
 function userFlToTableFl(flightLevel) {
@@ -60,6 +141,54 @@ function getLrcTableFlRange() {
   return {
     minFl: LRC_CRUISE_TABLE.altitudesFL[0] * 10,
     maxFl: LRC_CRUISE_TABLE.altitudesFL[LRC_CRUISE_TABLE.altitudesFL.length - 1] * 10,
+  };
+}
+
+function getDiversionAltitudeRangeFt() {
+  if (!DIVERSION_LRC_TABLE) return { minFt: NaN, maxFt: NaN };
+  const altitudeArrays = [];
+  if (DIVERSION_LRC_TABLE.low?.fuelTime?.altitudeAxisFt) {
+    altitudeArrays.push(DIVERSION_LRC_TABLE.low.fuelTime.altitudeAxisFt);
+  }
+  if (DIVERSION_LRC_TABLE.high?.fuelTime?.altitudeAxisFt) {
+    altitudeArrays.push(DIVERSION_LRC_TABLE.high.fuelTime.altitudeAxisFt);
+  }
+  if (DIVERSION_LRC_TABLE.fuelTime?.altitudeAxisFt) {
+    altitudeArrays.push(DIVERSION_LRC_TABLE.fuelTime.altitudeAxisFt);
+  }
+  if (altitudeArrays.length === 0) return { minFt: NaN, maxFt: NaN };
+
+  const mins = altitudeArrays.map((a) => a[0]).filter(Number.isFinite);
+  const maxs = altitudeArrays.map((a) => a[a.length - 1]).filter(Number.isFinite);
+  if (mins.length === 0 || maxs.length === 0) return { minFt: NaN, maxFt: NaN };
+  return {
+    minFt: Math.min(...mins),
+    maxFt: Math.max(...maxs),
+  };
+}
+
+function getLrcAltitudeLimitsRanges() {
+  if (!LRC_ALTITUDE_LIMITS_TABLE) {
+    return {
+      minWeightT: NaN,
+      maxWeightT: NaN,
+      minIsaDevC: NaN,
+      maxIsaDevC: NaN,
+      minOptimumAltFt: NaN,
+      maxOptimumAltFt: NaN,
+    };
+  }
+  const weightAxis = LRC_ALTITUDE_LIMITS_TABLE.weightAxisT || [];
+  const isaAxis = LRC_ALTITUDE_LIMITS_TABLE.isaDeviationAxisC || [];
+  const optimumGrid = LRC_ALTITUDE_LIMITS_TABLE.optimumAltFtValues || [];
+  const flatOptimum = optimumGrid.flat().filter(Number.isFinite);
+  return {
+    minWeightT: weightAxis[0],
+    maxWeightT: weightAxis[weightAxis.length - 1],
+    minIsaDevC: isaAxis[0],
+    maxIsaDevC: isaAxis[isaAxis.length - 1],
+    minOptimumAltFt: flatOptimum.length ? Math.min(...flatOptimum) : NaN,
+    maxOptimumAltFt: flatOptimum.length ? Math.max(...flatOptimum) : NaN,
   };
 }
 
@@ -211,6 +340,289 @@ function linearClamped(axis, values, x) {
 
 function bilinearClamped(xAxis, yAxis, grid, x, y) {
   return bilinear(xAxis, yAxis, grid, clampToAxis(xAxis, x), clampToAxis(yAxis, y));
+}
+
+function evaluateLrcAltitudeLimits(weightT, isaDeviationCInput) {
+  if (!LRC_ALTITUDE_LIMITS_TABLE) {
+    throw new Error("LRC altitude limits table is missing");
+  }
+  if (!Number.isFinite(weightT) || weightT <= 0) {
+    throw new Error("Weight must be > 0 t");
+  }
+  if (!Number.isFinite(isaDeviationCInput)) {
+    throw new Error("Temperature / ISA deviation is invalid");
+  }
+
+  const isaAxis = LRC_ALTITUDE_LIMITS_TABLE.isaDeviationAxisC;
+  const weightAxis = LRC_ALTITUDE_LIMITS_TABLE.weightAxisT;
+  const minIsa = isaAxis[0];
+  const maxIsa = isaAxis[isaAxis.length - 1];
+  const isaDeviationCUsed = isaDeviationCInput < minIsa ? minIsa : isaDeviationCInput;
+  if (isaDeviationCUsed > maxIsa) {
+    throw new Error(`Temperature / ISA deviation out of range (ISA+${format(minIsa, 0)} to ISA+${format(maxIsa, 0)})`);
+  }
+  if (weightT < weightAxis[0] || weightT > weightAxis[weightAxis.length - 1]) {
+    throw new Error(`Weight out of range (${format(weightAxis[0], 1)}-${format(weightAxis[weightAxis.length - 1], 1)} t)`);
+  }
+
+  const optimumAltFt = bilinear(
+    isaAxis,
+    weightAxis,
+    LRC_ALTITUDE_LIMITS_TABLE.optimumAltFtValues,
+    isaDeviationCUsed,
+    weightT,
+  );
+  const maxAltFt = bilinear(
+    isaAxis,
+    weightAxis,
+    LRC_ALTITUDE_LIMITS_TABLE.maxAltFtValues,
+    isaDeviationCUsed,
+    weightT,
+  );
+  const thrustMetric = bilinear(
+    isaAxis,
+    weightAxis,
+    LRC_ALTITUDE_LIMITS_TABLE.thrustLimitedValues,
+    isaDeviationCUsed,
+    weightT,
+  );
+
+  return {
+    weightT,
+    isaDeviationCInput,
+    isaDeviationCUsed,
+    clampedToIsa10: isaDeviationCInput < minIsa,
+    optimumAltFt,
+    maxAltFt,
+    thrustLimited: thrustMetric >= 0.5,
+    thrustMetric,
+  };
+}
+
+function buildOptimumAltitudeByWeightAtIsa(isaDeviationCUsed) {
+  const isaAxis = LRC_ALTITUDE_LIMITS_TABLE.isaDeviationAxisC;
+  const weightAxis = LRC_ALTITUDE_LIMITS_TABLE.weightAxisT;
+  const grid = LRC_ALTITUDE_LIMITS_TABLE.optimumAltFtValues;
+
+  return weightAxis.map((_, weightIndex) =>
+    linear(
+      isaAxis,
+      grid.map((row) => row[weightIndex]),
+      isaDeviationCUsed,
+    ),
+  );
+}
+
+function weightForNominatedOptimumAltitude(targetOptimumAltFt, isaDeviationCUsed) {
+  if (!Number.isFinite(targetOptimumAltFt) || targetOptimumAltFt <= 0) {
+    throw new Error("Nominated optimum Alt/FL must be > 0");
+  }
+  const weightAxis = LRC_ALTITUDE_LIMITS_TABLE.weightAxisT;
+  const optimumByWeight = buildOptimumAltitudeByWeightAtIsa(isaDeviationCUsed);
+  const minOpt = Math.min(...optimumByWeight);
+  const maxOpt = Math.max(...optimumByWeight);
+  if (targetOptimumAltFt < minOpt || targetOptimumAltFt > maxOpt) {
+    throw new Error(
+      `Nominated optimum Alt/FL out of range (${format(minOpt, 0)}-${format(maxOpt, 0)} ft / FL${format(minOpt / 100, 0)}-FL${format(maxOpt / 100, 0)})`,
+    );
+  }
+
+  // Search from heaviest to lightest so flat-top altitudes resolve to the earliest reachable weight.
+  for (let i = weightAxis.length - 1; i >= 1; i -= 1) {
+    const wHeavy = weightAxis[i];
+    const wLight = weightAxis[i - 1];
+    const aHeavy = optimumByWeight[i];
+    const aLight = optimumByWeight[i - 1];
+    const lowAlt = Math.min(aHeavy, aLight);
+    const highAlt = Math.max(aHeavy, aLight);
+    if (targetOptimumAltFt >= lowAlt && targetOptimumAltFt <= highAlt) {
+      if (aLight === aHeavy) {
+        return wHeavy;
+      }
+      const t = (targetOptimumAltFt - aHeavy) / (aLight - aHeavy);
+      return wHeavy + (wLight - wHeavy) * t;
+    }
+  }
+
+  return weightAxis[0];
+}
+
+function getDriftdownRanges() {
+  if (!DRIFTDOWN_TABLE) {
+    return {
+      minWeightT: NaN,
+      maxWeightT: NaN,
+      minIsaDevC: NaN,
+      maxIsaDevC: NaN,
+      minGnm: NaN,
+      maxGnm: NaN,
+      minWindKt: NaN,
+      maxWindKt: NaN,
+      minAnm: NaN,
+      maxAnm: NaN,
+    };
+  }
+  const startWeights = DRIFTDOWN_TABLE.levelOff?.startWeightAxisT || [];
+  const isaAxis = DRIFTDOWN_TABLE.levelOff?.isaDeviationAxisC || [];
+  const gnmAxis = DRIFTDOWN_TABLE.groundToAir?.gnmAxis || [];
+  const windAxis = DRIFTDOWN_TABLE.groundToAir?.windAxis || [];
+  const anmAxis = DRIFTDOWN_TABLE.fuelTime?.anmAxis || [];
+  return {
+    minWeightT: startWeights[0],
+    maxWeightT: startWeights[startWeights.length - 1],
+    minIsaDevC: isaAxis[0],
+    maxIsaDevC: isaAxis[isaAxis.length - 1],
+    minGnm: gnmAxis[0],
+    maxGnm: gnmAxis[gnmAxis.length - 1],
+    minWindKt: windAxis[0],
+    maxWindKt: windAxis[windAxis.length - 1],
+    minAnm: anmAxis[0],
+    maxAnm: anmAxis[anmAxis.length - 1],
+  };
+}
+
+function normalizeIsaDeviationForDriftdown(inputIsaDeviationC) {
+  if (!Number.isFinite(inputIsaDeviationC)) {
+    throw new Error("Temperature / ISA deviation is invalid");
+  }
+  const axis = DRIFTDOWN_TABLE.levelOff.isaDeviationAxisC;
+  const minIsa = axis[0];
+  const maxIsa = axis[axis.length - 1];
+  const isaDeviationCUsed = inputIsaDeviationC < minIsa ? minIsa : inputIsaDeviationC;
+  if (isaDeviationCUsed > maxIsa) {
+    throw new Error(`Engine inop temperature / ISA deviation out of range (ISA+${format(minIsa, 0)} to ISA+${format(maxIsa, 0)})`);
+  }
+  return {
+    isaDeviationCUsed,
+    clampedToIsa10: inputIsaDeviationC < minIsa,
+  };
+}
+
+function evaluateDriftdownLevelOff(startWeightT, isaDeviationCInput) {
+  if (!DRIFTDOWN_TABLE) {
+    throw new Error("Driftdown table is missing");
+  }
+  const { isaDeviationCUsed, clampedToIsa10 } = normalizeIsaDeviationForDriftdown(isaDeviationCInput);
+  const weightAxis = DRIFTDOWN_TABLE.levelOff.startWeightAxisT;
+  if (startWeightT < weightAxis[0] || startWeightT > weightAxis[weightAxis.length - 1]) {
+    throw new Error(
+      `Engine inop start weight out of range (${format(weightAxis[0], 1)}-${format(weightAxis[weightAxis.length - 1], 1)} t)`,
+    );
+  }
+
+  const levelOffWeightT = linear(weightAxis, DRIFTDOWN_TABLE.levelOff.levelOffWeightValues, startWeightT);
+  const optimumDriftdownKias = linear(weightAxis, DRIFTDOWN_TABLE.levelOff.optimumDriftdownKiasValues, startWeightT);
+  const levelOffAltFt = bilinear(
+    DRIFTDOWN_TABLE.levelOff.isaDeviationAxisC,
+    weightAxis,
+    DRIFTDOWN_TABLE.levelOff.levelOffAltFtValues,
+    isaDeviationCUsed,
+    startWeightT,
+  );
+
+  return {
+    isaDeviationCUsed,
+    clampedToIsa10,
+    levelOffWeightT,
+    optimumDriftdownKias,
+    levelOffAltFt,
+  };
+}
+
+function driftdownAnmFromGnm(gnm, windKt) {
+  if (!DRIFTDOWN_TABLE) {
+    throw new Error("Driftdown table is missing");
+  }
+  const gnmAxis = DRIFTDOWN_TABLE.groundToAir.gnmAxis;
+  const windAxis = DRIFTDOWN_TABLE.groundToAir.windAxis;
+  if (!Number.isFinite(gnm) || gnm < gnmAxis[0] || gnm > gnmAxis[gnmAxis.length - 1]) {
+    throw new Error(`Driftdown GNM out of range (${format(gnmAxis[0], 0)}-${format(gnmAxis[gnmAxis.length - 1], 0)})`);
+  }
+  if (!Number.isFinite(windKt) || windKt < windAxis[0] || windKt > windAxis[windAxis.length - 1]) {
+    throw new Error(`Driftdown wind out of range (${format(windAxis[0], 0)} to +${format(windAxis[windAxis.length - 1], 0)} kt)`);
+  }
+
+  if (windKt === 0) return gnm;
+
+  if (windKt < 0) {
+    const absWind = Math.abs(windKt);
+    if (absWind < 20) {
+      const anmAt20Headwind = linear(
+        gnmAxis,
+        DRIFTDOWN_TABLE.groundToAir.values.map((row) => row[4]),
+        gnm,
+      );
+      return gnm + (anmAt20Headwind - gnm) * (absWind / 20);
+    }
+  } else if (windKt < 20) {
+    const anmAt20Tailwind = linear(
+      gnmAxis,
+      DRIFTDOWN_TABLE.groundToAir.values.map((row) => row[5]),
+      gnm,
+    );
+    return gnm + (anmAt20Tailwind - gnm) * (windKt / 20);
+  }
+
+  return bilinear(
+    gnmAxis,
+    windAxis,
+    DRIFTDOWN_TABLE.groundToAir.values,
+    gnm,
+    windKt,
+  );
+}
+
+function driftdownFuelAndTime(anm, startWeightT, perfAdjust) {
+  if (!DRIFTDOWN_TABLE) {
+    throw new Error("Driftdown table is missing");
+  }
+  const anmAxis = DRIFTDOWN_TABLE.fuelTime.anmAxis;
+  const weightAxis = DRIFTDOWN_TABLE.fuelTime.weightAxisT;
+  if (!Number.isFinite(anm) || anm < anmAxis[0] || anm > anmAxis[anmAxis.length - 1]) {
+    throw new Error(`Driftdown ANM out of range (${format(anmAxis[0], 0)}-${format(anmAxis[anmAxis.length - 1], 0)})`);
+  }
+  if (!Number.isFinite(startWeightT) || startWeightT < weightAxis[0] || startWeightT > weightAxis[weightAxis.length - 1]) {
+    throw new Error(`Driftdown start weight out of range (${format(weightAxis[0], 1)}-${format(weightAxis[weightAxis.length - 1], 1)} t)`);
+  }
+
+  const fuel1000Kg = bilinear(
+    anmAxis,
+    weightAxis,
+    DRIFTDOWN_TABLE.fuelTime.fuel1000KgValues,
+    anm,
+    startWeightT,
+  );
+  const timeMinutes = linear(anmAxis, DRIFTDOWN_TABLE.fuelTime.timeMinutesValues, anm);
+  return {
+    fuelKg: fuel1000Kg * 1000 * (1 + perfAdjust),
+    timeMinutes,
+  };
+}
+
+function singleEngineLrcCapabilityAltitude(startWeightT, isaDeviationCInput) {
+  if (!DRIFTDOWN_TABLE) {
+    throw new Error("Driftdown table is missing");
+  }
+  const { isaDeviationCUsed, clampedToIsa10 } = normalizeIsaDeviationForDriftdown(isaDeviationCInput);
+  const weightAxis = DRIFTDOWN_TABLE.singleEngineLrcCapability.weightAxisT;
+  if (!Number.isFinite(startWeightT) || startWeightT < weightAxis[0] || startWeightT > weightAxis[weightAxis.length - 1]) {
+    throw new Error(
+      `SE LRC capability weight out of range (${format(weightAxis[0], 1)}-${format(weightAxis[weightAxis.length - 1], 1)} t)`,
+    );
+  }
+
+  const altitudeFt = bilinear(
+    DRIFTDOWN_TABLE.singleEngineLrcCapability.isaDeviationAxisC,
+    weightAxis,
+    DRIFTDOWN_TABLE.singleEngineLrcCapability.altitudeFtValues,
+    isaDeviationCUsed,
+    startWeightT,
+  );
+  return {
+    isaDeviationCUsed,
+    clampedToIsa10,
+    altitudeFt,
+  };
 }
 
 function buildFuelRequirement({ flightFuelKg, landingWeightT, additionalHoldingMin, perfAdjust }) {
@@ -556,24 +968,28 @@ function solveHeadingForTrack(trackDeg, tasKt, windFromDeg, windSpeedKt) {
   };
 }
 
-function computeReferenceTurnRadiusNm(tasKt, windSpeedKt) {
+function computeReferenceTurnRadiusNm(tasKt, windSpeedKt, bankLimitDeg = DEFAULT_HOLD_BANK_DEG) {
   if (!Number.isFinite(tasKt) || tasKt <= 0) {
     throw new Error("TAS must be > 0 kt");
   }
   if (!Number.isFinite(windSpeedKt) || windSpeedKt < 0) {
     throw new Error("Wind speed must be >= 0 kt");
   }
+  if (!Number.isFinite(bankLimitDeg) || bankLimitDeg <= 0 || bankLimitDeg >= 90) {
+    throw new Error("Bank limit must be > 0 and < 90 deg");
+  }
   const referenceGsKt = tasKt + Math.abs(windSpeedKt);
   if (referenceGsKt <= 0) {
     throw new Error("Reference ground speed is invalid");
   }
-  const radiusM = (referenceGsKt * KT_TO_MPS) ** 2 / (G0 * Math.tan(toRadians(HOLD_MAX_BANK_DEG)));
+  const radiusM = (referenceGsKt * KT_TO_MPS) ** 2 / (G0 * Math.tan(toRadians(bankLimitDeg)));
   const radiusNm = radiusM / 1852;
   const referenceRateDegPerSec = toDegrees((referenceGsKt / 3600) / radiusNm);
   return {
     referenceGsKt,
     radiusNm,
     referenceRateDegPerSec,
+    bankLimitDeg,
   };
 }
 
@@ -618,6 +1034,7 @@ function calculateHoldTiming({
   pressureAltitudeFt,
   iasKt,
   isaDeviationC,
+  bankLimitDeg = DEFAULT_HOLD_BANK_DEG,
 }) {
   if (!Number.isFinite(pressureAltitudeFt) || pressureAltitudeFt <= 0) {
     throw new Error("Timing altitude must be a positive value in feet");
@@ -637,6 +1054,9 @@ function calculateHoldTiming({
   if (!Number.isFinite(isaDeviationC)) {
     throw new Error("Timing ISA deviation is invalid");
   }
+  if (!Number.isFinite(bankLimitDeg) || bankLimitDeg <= 0 || bankLimitDeg >= 90) {
+    throw new Error("Bank limit must be > 0 and < 90 deg");
+  }
 
   const atmosphere = atmosphereFromPressureAltitude({
     pressureAltitudeFt,
@@ -655,7 +1075,7 @@ function calculateHoldTiming({
   const inbound = solveHeadingForTrack(inboundTrack, speed.tasKt, windFromDeg, windSpeedKt);
   const outbound = solveHeadingForTrack(outboundTrack, speed.tasKt, windFromDeg, windSpeedKt);
 
-  const turnRef = computeReferenceTurnRadiusNm(speed.tasKt, windSpeedKt);
+  const turnRef = computeReferenceTurnRadiusNm(speed.tasKt, windSpeedKt, bankLimitDeg);
   if (!Number.isFinite(turnRef.radiusNm) || turnRef.radiusNm <= 0) {
     throw new Error("Turn radius is invalid");
   }
@@ -734,7 +1154,7 @@ function calculateHoldTiming({
     turn2AvgGsKt,
     turn1BankDeg,
     turn2BankDeg,
-    turnModel: "25° bank radius reference",
+    turnModel: `${format(bankLimitDeg, 1)}° bank radius reference`,
     turn1Deg,
     turn2Deg,
     turn1Min,
@@ -1382,6 +1802,9 @@ function renderRows(target, rows) {
       if (k === "__spacer__") {
         return '<div class="result-spacer"></div>';
       }
+      if (k === "__section__") {
+        return `<div class="result-section-title">${v}</div>`;
+      }
       return `<div class="result-row"><span class="result-key">${k}</span><span class="result-value">${v}</span></div>`;
     })
     .join("");
@@ -1461,6 +1884,138 @@ function bindLongRange() {
   form.dispatchEvent(new Event("submit"));
 }
 
+function bindLrcAltitudeLimits() {
+  const form = document.querySelector("#lrc-altitude-form");
+  const out = document.querySelector("#lrc-altitude-out");
+  if (!form || !out) return;
+
+  const isaDevEl = document.querySelector("#lrc-alt-isa-dev");
+  const tempEl = document.querySelector("#lrc-alt-temp");
+  const currentAltEl = document.querySelector("#lrc-alt-current");
+  const targetAltEl = document.querySelector("#lrc-alt-target");
+  const driftGnmEl = document.querySelector("#lrc-alt-drift-gnm");
+  const driftWindEl = document.querySelector("#lrc-alt-drift-wind");
+  let lastTempSource = "isa-dev";
+  isaDevEl.addEventListener("input", () => {
+    lastTempSource = "isa-dev";
+  });
+  tempEl.addEventListener("input", () => {
+    lastTempSource = "temp";
+  });
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    try {
+      const weightT = parseNum(document.querySelector("#lrc-alt-weight").value);
+      const currentAltInput = parseAltOrFlInput(currentAltEl.value, "Current Alt/FL");
+      const targetAltRaw = String(targetAltEl.value ?? "").trim();
+      const hasTargetOptimum = targetAltRaw !== "";
+      const targetAltInput = hasTargetOptimum
+        ? parseAltOrFlInput(targetAltRaw, "Nominated optimum Alt/FL")
+        : null;
+      const currentFl = currentAltInput.flightLevel;
+      const currentAltitudeFt = currentAltInput.altitudeFt;
+      const targetOptimumAltFt = targetAltInput ? targetAltInput.altitudeFt : NaN;
+      const driftGnm = parseNum(driftGnmEl.value);
+      const driftWindKt = parseNum(driftWindEl.value);
+      const perfAdjust = getGlobalPerfAdjust();
+      const temperaturePair = resolveTemperaturePair({
+        isaDeviationRaw: isaDevEl.value,
+        temperatureRaw: tempEl.value,
+        lastSource: lastTempSource,
+        pressureAltitudeFt: currentAltitudeFt,
+        label: "LRC Altitude Limits temperature",
+      });
+      const isaDeviationCInput = temperaturePair.isaDeviationC;
+
+      validateLrcFlightLevelRange(currentFl, "Current Alt/FL");
+      const limits = evaluateLrcAltitudeLimits(weightT, isaDeviationCInput);
+      const driftLevelOff = evaluateDriftdownLevelOff(weightT, isaDeviationCInput);
+      const driftAnm = driftdownAnmFromGnm(driftGnm, driftWindKt);
+      const driftFuelTime = driftdownFuelAndTime(driftAnm, weightT, perfAdjust);
+      const seLrcCapability = singleEngineLrcCapabilityAltitude(weightT, isaDeviationCInput);
+
+      if (!currentAltInput.isThreeDigitFl) {
+        currentAltEl.value = format(currentFl, 0);
+      }
+      if (targetAltInput && targetAltInput.isThreeDigitFl) {
+        targetAltEl.value = format(targetOptimumAltFt, 0);
+      }
+      isaDevEl.value = format(temperaturePair.isaDeviationC, 1);
+      tempEl.value = format(temperaturePair.temperatureC, 1);
+      applyTemperatureFieldStyle({
+        sourceUsed: temperaturePair.sourceUsed,
+        isaDeviationEl: isaDevEl,
+        temperatureEl: tempEl,
+      });
+      lastTempSource = temperaturePair.sourceUsed;
+
+      const rows = [
+        ["__section__", "Baseline Limits"],
+        [
+          "ISA Deviation Used",
+          limits.clampedToIsa10
+            ? `ISA+${format(limits.isaDeviationCUsed, 0)} (input ${format(limits.isaDeviationCInput, 0)}; floored to ISA+10)`
+            : `ISA+${format(limits.isaDeviationCUsed, 0)}`,
+        ],
+        ["Optimum Altitude", `${format(limits.optimumAltFt, 0)} ft (FL${format(limits.optimumAltFt / 100, 0)})`],
+        [
+          "LRC Maximum Altitude / Thrust Limited",
+          `${format(limits.maxAltFt, 0)} ft (FL${format(limits.maxAltFt / 100, 0)}) / ${limits.thrustLimited ? "Yes" : "No"}`,
+        ],
+        [
+          "SE LRC Altitude Capability (100 fpm)",
+          `${format(seLrcCapability.altitudeFt, 0)} ft (FL${format(seLrcCapability.altitudeFt / 100, 0)})`,
+        ],
+        ["__spacer__", ""],
+        ["__section__", "Engine-Out / Driftdown"],
+        ["Driftdown Start Weight", `${format(weightT, 1)} t`],
+        ["Driftdown Level Off Weight", `${format(driftLevelOff.levelOffWeightT, 1)} t`],
+        ["Optimum Driftdown Speed", `${format(driftLevelOff.optimumDriftdownKias, 0)} kt`],
+        [
+          "Driftdown Level Off Altitude",
+          `${format(driftLevelOff.levelOffAltFt, 0)} ft (FL${format(driftLevelOff.levelOffAltFt / 100, 0)})`,
+        ],
+        ["Driftdown Air Distance (ANM)", `${format(driftAnm, 0)} nm`],
+        ["Driftdown + Cruise Fuel", `${format(driftFuelTime.fuelKg, 0)} kg`],
+        ["Driftdown + Cruise Time", `${format(driftFuelTime.timeMinutes, 1)} min (${formatMinutes(driftFuelTime.timeMinutes)})`],
+      ];
+
+      if (hasTargetOptimum) {
+        const targetWeightT = weightForNominatedOptimumAltitude(targetOptimumAltFt, limits.isaDeviationCUsed);
+        const cruise = getLrcCruiseState(weightT, currentFl, 0, perfAdjust);
+        const burnKgToTarget = Math.max(0, (weightT - targetWeightT) * 1000);
+        const minutesToTarget = burnKgToTarget > 0 ? (burnKgToTarget / cruise.fuelHr) * 60 : 0;
+        const timeText = burnKgToTarget > 0 ? `${format(minutesToTarget, 1)} min (${formatMinutes(minutesToTarget)})` : "Already reached";
+
+        rows.splice(6, 0,
+          ["__spacer__", ""],
+          ["__section__", "Nominated Optimum (optional)"],
+          [
+            "Nominated Optimum Altitude",
+            `${format(targetOptimumAltFt, 0)} ft (FL${format(targetOptimumAltFt / 100, 0)})`,
+          ],
+          ["Equivalent Weight", `${format(targetWeightT, 1)} t`],
+          ["Current LRC Fuel Flow", `${format(cruise.fuelHr, 0)} kg/h @ FL${format(currentFl, 0)}`],
+          ["Fuel to Burn to Equivalent Weight", `${format(burnKgToTarget, 0)} kg`],
+          ["Time to Reach Nominated Optimum", timeText],
+        );
+      }
+
+      renderRows(out, rows);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  applyTemperatureFieldStyle({
+    sourceUsed: lastTempSource,
+    isaDeviationEl: isaDevEl,
+    temperatureEl: tempEl,
+  });
+  form.dispatchEvent(new Event("submit"));
+}
+
 function bindDiversion() {
   const form = document.querySelector("#diversion-form");
   const out = document.querySelector("#diversion-out");
@@ -1471,20 +2026,18 @@ function bindDiversion() {
     try {
       const gnm = parseNum(document.querySelector("#div-gnm").value);
       const wind = parseNum(document.querySelector("#div-wind").value);
-      const altitudeRaw = parseNum(document.querySelector("#div-alt").value);
-      const altitudeFt = normalizeAltitudeFtInput(altitudeRaw, "Diversion altitude");
+      const divAltEl = document.querySelector("#div-alt");
+      const divAltInput = parseAltOrFlInput(divAltEl.value, "Diversion Alt/FL");
+      const altitudeFt = divAltInput.altitudeFt;
       const weightT = parseNum(document.querySelector("#div-weight").value);
       const holdingMin = parseNum(document.querySelector("#div-hold-min").value);
       const perfAdjust = getGlobalPerfAdjust();
-      if (altitudeRaw < 1000) {
-        document.querySelector("#div-alt").value = format(altitudeFt, 0);
+      if (divAltInput.isThreeDigitFl) {
+        divAltEl.value = format(altitudeFt, 0);
       }
 
       const result = diversionLrcFuel(gnm, wind, altitudeFt, weightT, perfAdjust, holdingMin);
       const rows = [
-        ["Air Distance (ANM)", `${format(result.anm, 0)} nm`],
-        ["Reference Fuel", `${format(result.referenceFuel1000Kg * 1000, 0)} kg`],
-        ["Weight Adjustment", `${format(result.adjustment1000Kg * 1000, 0)} kg`],
         ["Flight Fuel", `${format(result.adjustedFuel1000Kg * 1000, 0)} kg`],
         ["Est Landing Weight", `${format(result.reserveCalcWeightT, 1)} t`],
         ["FRF (30 min hold @ 1500 ft)", `${format(result.frfKg, 0)} kg`],
@@ -1506,61 +2059,71 @@ function bindDiversion() {
 function bindHolding() {
   const form = document.querySelector("#holding-form");
   const out = document.querySelector("#holding-out");
-  const timingModeEl = document.querySelector("#hold-timing-mode");
   const totalHoldEl = document.querySelector("#hold-total-min");
   const inboundLegEl = document.querySelector("#hold-inbound-min");
-  let lastTotalHoldValue = totalHoldEl.value;
-  let lastInboundLegValue = inboundLegEl.value;
+  const timingIsaDevEl = document.querySelector("#hold-timing-isa-dev");
+  const timingTempEl = document.querySelector("#hold-timing-temp");
+  let lastTimingSource = totalHoldEl.value.trim() !== "" ? "total" : "inbound";
+  let lastTempSource = "isa-dev";
 
-  function toggleTimingInputs() {
-    const givenTotal = timingModeEl.value === "given-total";
-    if (givenTotal) {
-      if (!inboundLegEl.disabled && inboundLegEl.value !== "") {
-        lastInboundLegValue = inboundLegEl.value;
-      }
+  function chooseTimingSource(source) {
+    if (source === "total" && totalHoldEl.value.trim() !== "") {
       inboundLegEl.value = "";
-      if (totalHoldEl.value === "" && lastTotalHoldValue !== "") {
-        totalHoldEl.value = lastTotalHoldValue;
-      }
-    } else {
-      if (!totalHoldEl.disabled && totalHoldEl.value !== "") {
-        lastTotalHoldValue = totalHoldEl.value;
-      }
+      lastTimingSource = "total";
+    } else if (source === "inbound" && inboundLegEl.value.trim() !== "") {
       totalHoldEl.value = "";
-      if (inboundLegEl.value === "" && lastInboundLegValue !== "") {
-        inboundLegEl.value = lastInboundLegValue;
-      }
+      lastTimingSource = "inbound";
     }
-    totalHoldEl.disabled = !givenTotal;
-    inboundLegEl.disabled = givenTotal;
   }
 
-  timingModeEl.addEventListener("change", () => {
-    toggleTimingInputs();
-    form.dispatchEvent(new Event("submit"));
+  totalHoldEl.addEventListener("input", () => chooseTimingSource("total"));
+  totalHoldEl.addEventListener("change", () => chooseTimingSource("total"));
+  inboundLegEl.addEventListener("input", () => chooseTimingSource("inbound"));
+  inboundLegEl.addEventListener("change", () => chooseTimingSource("inbound"));
+  timingIsaDevEl.addEventListener("input", () => {
+    lastTempSource = "isa-dev";
+  });
+  timingTempEl.addEventListener("input", () => {
+    lastTempSource = "temp";
   });
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     try {
       const weight = parseNum(document.querySelector("#hold-weight").value);
-      const altitudeRaw = parseNum(document.querySelector("#hold-alt").value);
-      const altitude = normalizeAltitudeFtInput(altitudeRaw, "Altitude");
+      const holdAltEl = document.querySelector("#hold-alt");
+      const holdAltInput = parseAltOrFlInput(holdAltEl.value, "Alt/FL");
+      const altitude = holdAltInput.altitudeFt;
       const fuelAvailable = parseNum(document.querySelector("#fuel-available").value);
       const perfAdjust = getGlobalPerfAdjust();
-      const timingMode = timingModeEl.value;
-      const totalHoldMin = parseNum(totalHoldEl.value);
-      const inboundLegMin = parseNum(inboundLegEl.value);
+      const totalHoldRaw = String(totalHoldEl.value || "").trim();
+      const inboundLegRaw = String(inboundLegEl.value || "").trim();
       const holdSide = String(document.querySelector("#hold-side").value || "R").toUpperCase();
       const inboundCourseDeg = parseNum(document.querySelector("#hold-inbound-course").value);
       const windFromDeg = parseNum(document.querySelector("#hold-wind-dir").value);
       const windSpeedKt = parseNum(document.querySelector("#hold-wind-speed").value);
       const timingIasRaw = String(document.querySelector("#hold-timing-ias").value || "").trim();
-      const timingIsaDevC = parseNum(document.querySelector("#hold-timing-isa-dev").value);
+      const bankLimitRaw = String(document.querySelector("#hold-bank-limit").value || "").trim();
+      const temperaturePair = resolveTemperaturePair({
+        isaDeviationRaw: timingIsaDevEl.value,
+        temperatureRaw: timingTempEl.value,
+        lastSource: lastTempSource,
+        pressureAltitudeFt: altitude,
+        label: "Holding timing temperature",
+      });
+      const timingIsaDevC = temperaturePair.isaDeviationC;
 
-      if (altitudeRaw < 1000) {
-        document.querySelector("#hold-alt").value = format(altitude, 0);
+      if (holdAltInput.isThreeDigitFl) {
+        holdAltEl.value = format(altitude, 0);
       }
+      timingIsaDevEl.value = format(temperaturePair.isaDeviationC, 1);
+      timingTempEl.value = format(temperaturePair.temperatureC, 1);
+      applyTemperatureFieldStyle({
+        sourceUsed: temperaturePair.sourceUsed,
+        isaDeviationEl: timingIsaDevEl,
+        temperatureEl: timingTempEl,
+      });
+      lastTempSource = temperaturePair.sourceUsed;
 
       if (!Number.isFinite(weight) || weight <= 0) {
         throw new Error("Weight must be > 0 t");
@@ -1584,8 +2147,31 @@ function bindHolding() {
       if (!Number.isFinite(windSpeedKt) || windSpeedKt < 0) {
         throw new Error("Wind speed must be >= 0 kt");
       }
-      if (!Number.isFinite(timingIsaDevC)) {
-        throw new Error("Timing ISA deviation is invalid");
+
+      let timingMode;
+      if (totalHoldRaw !== "" && inboundLegRaw !== "") {
+        if (lastTimingSource === "inbound") {
+          totalHoldEl.value = "";
+          timingMode = "given-inbound";
+        } else {
+          inboundLegEl.value = "";
+          timingMode = "given-total";
+        }
+      } else if (totalHoldRaw !== "") {
+        timingMode = "given-total";
+        lastTimingSource = "total";
+      } else if (inboundLegRaw !== "") {
+        timingMode = "given-inbound";
+        lastTimingSource = "inbound";
+      } else {
+        throw new Error("Enter Total hold required or Inbound leg time");
+      }
+
+      const totalHoldMin = timingMode === "given-total" ? parseNum(totalHoldEl.value) : NaN;
+      const inboundLegMin = timingMode === "given-inbound" ? parseNum(inboundLegEl.value) : NaN;
+      const bankLimitDeg = bankLimitRaw === "" ? DEFAULT_HOLD_BANK_DEG : parseNum(bankLimitRaw);
+      if (!Number.isFinite(bankLimitDeg) || bankLimitDeg <= 0 || bankLimitDeg >= 90) {
+        throw new Error("Bank limit must be > 0 and < 90 deg");
       }
 
       if (timingMode === "given-total") {
@@ -1628,6 +2214,7 @@ function bindHolding() {
         pressureAltitudeFt: altitude,
         iasKt: timingIasKt,
         isaDeviationC: timingIsaDevC,
+        bankLimitDeg,
       });
 
       rows.push(
@@ -1663,7 +2250,12 @@ function bindHolding() {
     }
   });
 
-  toggleTimingInputs();
+  chooseTimingSource("total");
+  applyTemperatureFieldStyle({
+    sourceUsed: lastTempSource,
+    isaDeviationEl: timingIsaDevEl,
+    temperatureEl: timingTempEl,
+  });
   form.dispatchEvent(new Event("submit"));
 }
 
@@ -1691,25 +2283,30 @@ function bindLoseTime() {
     try {
       const distanceNm = parseNum(document.querySelector("#lt-distance").value);
       const startWeightT = parseNum(document.querySelector("#lt-weight").value);
-      const startFlRaw = parseNum(document.querySelector("#lt-fl").value);
-      const startFl = normalizeFlightLevelInput(startFlRaw, "Current flight level");
+      const startFlEl = document.querySelector("#lt-fl");
+      const startFlInput = parseAltOrFlInput(startFlEl.value, "Current Alt/FL");
+      const startFl = startFlInput.flightLevel;
       const requiredDelayMin = parseNum(document.querySelector("#lt-delay").value);
       const windKt = parseNum(document.querySelector("#lt-wind").value);
       const perfAdjust = getGlobalPerfAdjust();
       const levelChangeMode = levelModeEl.value;
-      const newFlRaw = parseNum(newFlEl.value);
       const newFl =
-        levelChangeMode === "none" ? startFl : normalizeFlightLevelInput(newFlRaw, "New flight level");
-      validateLrcFlightLevelRange(startFl, "Current flight level");
+        levelChangeMode === "none"
+          ? startFl
+          : parseAltOrFlInput(newFlEl.value, "New Alt/FL").flightLevel;
+      validateLrcFlightLevelRange(startFl, "Current Alt/FL");
       if (levelChangeMode !== "none") {
-        validateLrcFlightLevelRange(newFl, "New flight level");
+        validateLrcFlightLevelRange(newFl, "New Alt/FL");
       }
 
-      if (startFlRaw >= 1000) {
-        document.querySelector("#lt-fl").value = format(startFl, 0);
+      if (!startFlInput.isThreeDigitFl) {
+        startFlEl.value = format(startFl, 0);
       }
-      if (levelChangeMode !== "none" && newFlRaw >= 1000) {
-        newFlEl.value = format(newFl, 0);
+      if (levelChangeMode !== "none") {
+        const newFlInput = parseAltOrFlInput(newFlEl.value, "New Alt/FL");
+        if (!newFlInput.isThreeDigitFl) {
+          newFlEl.value = format(newFl, 0);
+        }
       }
 
       const levelChange = {
@@ -1786,51 +2383,59 @@ function bindConversion() {
   const machEl = document.querySelector("#conv-mach");
   const tasEl = document.querySelector("#conv-tas");
   const flEl = document.querySelector("#conv-fl");
-  const tempModeEl = document.querySelector("#conv-temp-mode");
   const oatEl = document.querySelector("#conv-oat");
   const isaDevEl = document.querySelector("#conv-isa-dev");
+  let lastTempSource = "temp";
 
   function toggleInputs() {
     const mode = modeEl.value;
     iasEl.disabled = mode !== "ias";
     machEl.disabled = mode !== "mach";
     tasEl.disabled = mode !== "tas";
-
-    flEl.disabled = false;
-
-    const tempMode = tempModeEl.value;
-    oatEl.disabled = tempMode !== "oat";
-    isaDevEl.disabled = tempMode !== "isa-dev";
   }
 
   modeEl.addEventListener("change", () => {
     toggleInputs();
     form.dispatchEvent(new Event("submit"));
   });
-  tempModeEl.addEventListener("change", () => {
-    toggleInputs();
-    form.dispatchEvent(new Event("submit"));
+  isaDevEl.addEventListener("input", () => {
+    lastTempSource = "isa-dev";
+  });
+  oatEl.addEventListener("input", () => {
+    lastTempSource = "temp";
   });
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     try {
-      const tempMode = tempModeEl.value;
-      const flRaw = parseNum(flEl.value);
-      const fl = normalizeFlightLevelInput(flRaw, "Flight level");
-      const oatC = parseNum(oatEl.value);
-      const isaDeviationC = parseNum(isaDevEl.value);
+      const flInput = parseAltOrFlInput(flEl.value, "Alt/FL");
+      const fl = flInput.flightLevel;
       const mode = modeEl.value;
+      const pressureAltitudeFt = fl * 100;
+      const temperaturePair = resolveTemperaturePair({
+        isaDeviationRaw: isaDevEl.value,
+        temperatureRaw: oatEl.value,
+        lastSource: lastTempSource,
+        pressureAltitudeFt,
+        label: "IAS/Mach/TAS temperature",
+      });
+      lastTempSource = temperaturePair.sourceUsed;
+      isaDevEl.value = format(temperaturePair.isaDeviationC, 1);
+      oatEl.value = format(temperaturePair.temperatureC, 1);
+      applyTemperatureFieldStyle({
+        sourceUsed: temperaturePair.sourceUsed,
+        isaDeviationEl: isaDevEl,
+        temperatureEl: oatEl,
+      });
 
-      if (flRaw >= 1000) {
+      if (!flInput.isThreeDigitFl) {
         flEl.value = format(fl, 0);
       }
-      const pressureAltitudeFt = fl * 100;
       const atmosphere = atmosphereFromPressureAltitude({
         pressureAltitudeFt,
-        tempMode,
-        oatC,
-        isaDeviationC,
+        tempMode: temperaturePair.sourceUsed === "temp" ? "oat" : "isa-dev",
+        oatC: temperaturePair.temperatureC,
+        isaDeviationC: temperaturePair.isaDeviationC,
       });
 
       let result;
@@ -1869,6 +2474,11 @@ function bindConversion() {
   });
 
   toggleInputs();
+  applyTemperatureFieldStyle({
+    sourceUsed: lastTempSource,
+    isaDeviationEl: isaDevEl,
+    temperatureEl: oatEl,
+  });
   form.dispatchEvent(new Event("submit"));
 }
 
@@ -1880,6 +2490,7 @@ function bindGlobalSettings() {
     [
       "#short-trip-form",
       "#long-range-form",
+      "#lrc-altitude-form",
       "#diversion-form",
       "#holding-form",
       "#lose-time-form",
@@ -1890,6 +2501,60 @@ function bindGlobalSettings() {
   };
 
   globalPerfEl.addEventListener("change", refreshAll);
+}
+
+function setAltFlRangeLabels() {
+  const setRangeText = (selector, text) => {
+    const el = document.querySelector(selector);
+    if (el) el.textContent = text;
+  };
+
+  const formatFlRange = (minFl, maxFl) => {
+    if (!Number.isFinite(minFl) || !Number.isFinite(maxFl)) return "";
+    return `(FL${format(minFl, 0)}-${format(maxFl, 0)})`;
+  };
+
+  const holdAltAxis = FLAPS_UP_TABLE?.altitudesFt;
+  if (Array.isArray(holdAltAxis) && holdAltAxis.length > 1) {
+    const minFl = holdAltAxis[0] / 100;
+    const maxFl = holdAltAxis[holdAltAxis.length - 1] / 100;
+    setRangeText("#hold-alt-range", formatFlRange(minFl, maxFl));
+  }
+
+  const diversionRange = getDiversionAltitudeRangeFt();
+  if (Number.isFinite(diversionRange.minFt) && Number.isFinite(diversionRange.maxFt)) {
+    setRangeText("#div-alt-range", formatFlRange(diversionRange.minFt / 100, diversionRange.maxFt / 100));
+  }
+
+  const { minFl, maxFl } = getLrcTableFlRange();
+  const lrcRangeText = formatFlRange(minFl, maxFl);
+  setRangeText("#lt-fl-range", lrcRangeText);
+  setRangeText("#lt-new-fl-range", lrcRangeText);
+  setRangeText("#lrc-alt-current-range", lrcRangeText);
+
+  const altLimitRanges = getLrcAltitudeLimitsRanges();
+  if (Number.isFinite(altLimitRanges.minOptimumAltFt) && Number.isFinite(altLimitRanges.maxOptimumAltFt)) {
+    setRangeText(
+      "#lrc-alt-target-range",
+      formatFlRange(altLimitRanges.minOptimumAltFt / 100, altLimitRanges.maxOptimumAltFt / 100),
+    );
+  }
+
+  const driftdownRanges = getDriftdownRanges();
+  if (Number.isFinite(driftdownRanges.minGnm) && Number.isFinite(driftdownRanges.maxGnm)) {
+    setRangeText("#lrc-alt-drift-gnm-range", `(${format(driftdownRanges.minGnm, 0)}-${format(driftdownRanges.maxGnm, 0)})`);
+  }
+  if (Number.isFinite(driftdownRanges.minWindKt) && Number.isFinite(driftdownRanges.maxWindKt)) {
+    setRangeText(
+      "#lrc-alt-drift-wind-range",
+      `(${format(driftdownRanges.minWindKt, 0)} to +${format(driftdownRanges.maxWindKt, 0)})`,
+    );
+  }
+
+  const maxGeopotentialM = ISA_LAYER_BASES_M[ISA_LAYER_BASES_M.length - 1];
+  const maxGeometricM = (EARTH_RADIUS_M * maxGeopotentialM) / (EARTH_RADIUS_M - maxGeopotentialM);
+  const maxIsaFl = (maxGeometricM * M_TO_FT) / 100;
+  setRangeText("#conv-fl-range", `(>0 to FL${format(maxIsaFl, 0)})`);
 }
 
 function registerServiceWorker() {
@@ -1927,8 +2592,10 @@ function registerServiceWorker() {
     .catch(() => {});
 }
 
+setAltFlRangeLabels();
 bindShortTrip();
 bindLongRange();
+bindLrcAltitudeLimits();
 bindDiversion();
 bindHolding();
 bindLoseTime();
