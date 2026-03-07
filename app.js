@@ -1999,6 +1999,7 @@ function bindLrcAltitudeLimits() {
           ["Current LRC Fuel Flow", `${format(cruise.fuelHr, 0)} kg/h @ FL${format(currentFl, 0)}`],
           ["Fuel to Burn to Equivalent Weight", `${format(burnKgToTarget, 0)} kg`],
           ["Time to Reach Nominated Optimum", timeText],
+          ["__spacer__", ""],
         );
       }
 
