@@ -2543,6 +2543,7 @@ function bindEngineOut() {
           ["Driftdown Air Distance (ANM)", `${format(driftAnm, 0)} nm`],
           ["Driftdown + Cruise Fuel", `${format(driftFuelTime.fuelKg, 0)} kg`],
           ["Driftdown + Cruise Time", `${format(driftFuelTime.timeMinutes, 1)} min (${formatMinutes(driftFuelTime.timeMinutes)})`],
+          ["__spacer__", ""],
         ]);
       } catch (error) {
         renderError(driftOut, error.message);
