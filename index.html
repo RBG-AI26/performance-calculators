@@ -94,13 +94,10 @@
             Temperature (°C)
             <input type="number" step="0.1" id="lrc-alt-temp" value="" />
           </label>
-          <label>
-            Current Alt/FL <span class="label-note" id="lrc-alt-current-range"></span>
-            <input type="number" step="1" min="0" id="lrc-alt-current" value="370" />
-          </label>
+          <input type="hidden" id="lrc-alt-current" value="400" />
           <div class="grid-subheading">Optional</div>
           <label>
-            Nominated Optimum Alt/FL <span class="label-note" id="lrc-alt-target-range"></span>
+            New Optimum Altitude <span class="label-note" id="lrc-alt-target-range"></span>
             <input type="number" step="1" min="0" id="lrc-alt-target" value="" />
           </label>
           <button type="submit">Calculate</button>

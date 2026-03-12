@@ -430,7 +430,7 @@ function buildOptimumAltitudeByWeightAtIsa(isaDeviationCUsed) {
 
 function weightForNominatedOptimumAltitude(targetOptimumAltFt, isaDeviationCUsed) {
   if (!Number.isFinite(targetOptimumAltFt) || targetOptimumAltFt <= 0) {
-    throw new Error("Nominated optimum Alt/FL must be > 0");
+    throw new Error("New Optimum Altitude must be > 0");
   }
   const weightAxis = LRC_ALTITUDE_LIMITS_TABLE.weightAxisT;
   const optimumByWeight = buildOptimumAltitudeByWeightAtIsa(isaDeviationCUsed);
@@ -438,7 +438,7 @@ function weightForNominatedOptimumAltitude(targetOptimumAltFt, isaDeviationCUsed
   const maxOpt = Math.max(...optimumByWeight);
   if (targetOptimumAltFt < minOpt || targetOptimumAltFt > maxOpt) {
     throw new Error(
-      `Nominated optimum Alt/FL out of range (${format(minOpt, 0)}-${format(maxOpt, 0)} ft / FL${format(minOpt / 100, 0)}-FL${format(maxOpt / 100, 0)})`,
+      `New Optimum Altitude out of range (${format(minOpt, 0)}-${format(maxOpt, 0)} ft / FL${format(minOpt / 100, 0)}-FL${format(maxOpt / 100, 0)})`,
     );
   }
 
@@ -2365,7 +2365,7 @@ function bindLrcAltitudeLimits() {
       const targetAltRaw = String(targetAltEl.value ?? "").trim();
       const hasTargetOptimum = targetAltRaw !== "";
       const targetAltInput = hasTargetOptimum
-        ? parseAltOrFlInput(targetAltRaw, "Nominated optimum Alt/FL")
+        ? parseAltOrFlInput(targetAltRaw, "New Optimum Altitude")
         : null;
       const currentFl = currentAltInput.flightLevel;
       const currentAltitudeFt = currentAltInput.altitudeFt;
@@ -2432,15 +2432,15 @@ function bindLrcAltitudeLimits() {
 
         rows.push(
           ["__spacer__", ""],
-          ["__section__", "Nominated Optimum (optional)"],
+          ["__section__", "New Optimum Altitude (optional)"],
           [
-            "Nominated Optimum Altitude",
+            "New Optimum Altitude",
             `${format(targetOptimumAltFt, 0)} ft (FL${format(targetOptimumAltFt / 100, 0)})`,
           ],
           ["Equivalent Weight", `${format(targetWeightT, 1)} t`],
           ["Current LRC Fuel Flow", `${format(cruise.fuelHr, 0)} kg/h @ FL${format(currentFl, 0)}`],
           ["Fuel to Burn to Equivalent Weight", `${format(burnKgToTarget, 0)} kg`],
-          ["Time to Reach Nominated Optimum", timeText],
+          ["Time to Reach New Optimum Altitude", timeText],
           ["__spacer__", ""],
         );
       }
