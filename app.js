@@ -2347,10 +2347,12 @@ function bindLrcAltitudeLimits() {
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
+    const targetAltRaw = String(targetAltEl.value ?? "").trim();
+    const hasTargetOptimum = targetAltRaw !== "";
     if (
       missingFieldsBanner(out, [
         fieldIsBlank(document.querySelector("#lrc-alt-weight").value) ? "Weight" : "",
-        fieldIsBlank(currentAltEl.value) ? "Current Alt/FL" : "",
+        hasTargetOptimum && fieldIsBlank(currentAltEl.value) ? "Current Alt/FL" : "",
       ])
     ) {
       return;
@@ -2361,14 +2363,14 @@ function bindLrcAltitudeLimits() {
     }
     try {
       const weightT = parseNum(document.querySelector("#lrc-alt-weight").value);
-      const currentAltInput = parseAltOrFlInput(currentAltEl.value, "Current Alt/FL");
-      const targetAltRaw = String(targetAltEl.value ?? "").trim();
-      const hasTargetOptimum = targetAltRaw !== "";
+      const currentAltRaw = String(currentAltEl.value ?? "").trim();
+      const hasCurrentAlt = currentAltRaw !== "";
+      const currentAltInput = hasCurrentAlt ? parseAltOrFlInput(currentAltRaw, "Current Alt/FL") : null;
       const targetAltInput = hasTargetOptimum
         ? parseAltOrFlInput(targetAltRaw, "New Optimum Altitude")
         : null;
-      const currentFl = currentAltInput.flightLevel;
-      const currentAltitudeFt = currentAltInput.altitudeFt;
+      const currentFl = currentAltInput ? currentAltInput.flightLevel : 400;
+      const currentAltitudeFt = currentAltInput ? currentAltInput.altitudeFt : 40000;
       const targetOptimumAltFt = targetAltInput ? targetAltInput.altitudeFt : NaN;
       const perfAdjust = getGlobalPerfAdjust();
       const temperaturePair = resolveTemperaturePair({
@@ -2380,7 +2382,6 @@ function bindLrcAltitudeLimits() {
       });
       const isaDeviationCInput = temperaturePair.isaDeviationC;
 
-      validateLrcFlightLevelRange(currentFl, "Current Alt/FL");
       const limits = evaluateLrcAltitudeLimits(weightT, isaDeviationCInput);
       const driftdownRanges = getDriftdownRanges();
       const eoWeightUsedT = clamp(weightT, driftdownRanges.minWeightT, driftdownRanges.maxWeightT);
@@ -2391,7 +2392,7 @@ function bindLrcAltitudeLimits() {
         eoWarnings.push(`Engine inop weight clamped to ${format(eoWeightUsedT, 1)} t`);
       }
 
-      if (!currentAltInput.isThreeDigitFl) {
+      if (currentAltInput && !currentAltInput.isThreeDigitFl) {
         currentAltEl.value = formatInputNumber(currentFl, 0);
       }
       if (targetAltInput && targetAltInput.isThreeDigitFl) {
@@ -2425,10 +2426,38 @@ function bindLrcAltitudeLimits() {
 
       if (hasTargetOptimum) {
         const targetWeightT = weightForNominatedOptimumAltitude(targetOptimumAltFt, limits.isaDeviationCUsed);
-        const cruise = getLrcCruiseState(weightT, currentFl, 0, perfAdjust);
+        const cruiseWeightAxis = (LRC_CRUISE_TABLE?.records || [])
+          .map((record) => record.weightT)
+          .filter(Number.isFinite)
+          .sort((a, b) => a - b);
+        const minCruiseWeightT = cruiseWeightAxis[0];
+        const maxCruiseWeightT = cruiseWeightAxis[cruiseWeightAxis.length - 1];
+        if (
+          !Number.isFinite(minCruiseWeightT) ||
+          !Number.isFinite(maxCruiseWeightT) ||
+          weightT < minCruiseWeightT ||
+          weightT > maxCruiseWeightT
+        ) {
+          throw new Error(
+            `Current weight out of range for LRC fuel-flow lookup (${format(minCruiseWeightT, 1)}-${format(maxCruiseWeightT, 1)} t)`,
+          );
+        }
+
         const burnKgToTarget = Math.max(0, (weightT - targetWeightT) * 1000);
-        const minutesToTarget = burnKgToTarget > 0 ? (burnKgToTarget / cruise.fuelHr) * 60 : 0;
-        const timeText = burnKgToTarget > 0 ? `${format(minutesToTarget, 1)} min (${formatMinutes(minutesToTarget)})` : "Already reached";
+        let cruiseFuelFlowText = "Unavailable for this altitude";
+        let timeText = burnKgToTarget > 0 ? "Unavailable for this altitude" : "Already reached";
+        try {
+          const cruise = getLrcCruiseState(weightT, currentFl, 0, perfAdjust);
+          cruiseFuelFlowText = `${format(cruise.fuelHr, 0)} kg/h @ FL${format(currentFl, 0)}`;
+          if (burnKgToTarget > 0) {
+            const minutesToTarget = (burnKgToTarget / cruise.fuelHr) * 60;
+            timeText = `${format(minutesToTarget, 1)} min (${formatMinutes(minutesToTarget)})`;
+          }
+        } catch (error) {
+          if (!String(error?.message || "").startsWith("LRC FL out of range")) {
+            throw error;
+          }
+        }
 
         rows.push(
           ["__spacer__", ""],
@@ -2438,7 +2467,7 @@ function bindLrcAltitudeLimits() {
             `${format(targetOptimumAltFt, 0)} ft (FL${format(targetOptimumAltFt / 100, 0)})`,
           ],
           ["Equivalent Weight", `${format(targetWeightT, 1)} t`],
-          ["Current LRC Fuel Flow", `${format(cruise.fuelHr, 0)} kg/h @ FL${format(currentFl, 0)}`],
+          ["Current LRC Fuel Flow", cruiseFuelFlowText],
           ["Fuel to Burn to Equivalent Weight", `${format(burnKgToTarget, 0)} kg`],
           ["Time to Reach New Optimum Altitude", timeText],
           ["__spacer__", ""],
