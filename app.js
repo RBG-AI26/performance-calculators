@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.4.0";
+const APP_VERSION = "v7.5.0";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 
 const R_AIR = 287.05287;
@@ -1709,11 +1709,6 @@ function calculateHoldTiming({
   const inbound = solveHeadingForTrack(inboundTrack, speed.tasKt, windFromDeg, windSpeedKt);
   const outbound = solveHeadingForTrack(outboundTrack, speed.tasKt, windFromDeg, windSpeedKt);
 
-  const turnRef = computeReferenceTurnRadiusNm(speed.tasKt, windSpeedKt, bankLimitDeg);
-  if (!Number.isFinite(turnRef.radiusNm) || turnRef.radiusNm <= 0) {
-    throw new Error("Turn radius is invalid");
-  }
-
   // Holding pattern sequence:
   // 1) Outbound turn at fix (inbound track -> outbound track)
   // 2) Outbound leg
@@ -1737,12 +1732,48 @@ function calculateHoldTiming({
     windSpeedKt,
     label: "inbound turn",
   });
-  const turnRadiusNm = turnRef.radiusNm;
+  const radiusFromGsAndBankNm = (gsKt, bankDeg) => {
+    const radiusM = ((gsKt * KT_TO_MPS) ** 2) / (G0 * Math.tan(toRadians(bankDeg)));
+    return radiusM / 1852;
+  };
+  const bankForGsAndRadiusDeg = (gsKt, radiusNm) => {
+    const radiusM = radiusNm * 1852;
+    return toDegrees(Math.atan(((gsKt * KT_TO_MPS) ** 2) / (G0 * radiusM)));
+  };
+
+  const gsDifference = outboundTurnAvgGsKt - inboundTurnAvgGsKt;
+  const gsTieThresholdKt = 0.01;
+  let fixedBankTurnLabel;
+  let turnRadiusNm;
+  let outboundTurnBankDeg;
+  let inboundTurnBankDeg;
+
+  if (Math.abs(gsDifference) <= gsTieThresholdKt) {
+    fixedBankTurnLabel = "Both turns (equal average turn GS)";
+    outboundTurnBankDeg = bankLimitDeg;
+    inboundTurnBankDeg = bankLimitDeg;
+    turnRadiusNm = radiusFromGsAndBankNm(outboundTurnAvgGsKt, bankLimitDeg);
+  } else if (gsDifference > 0) {
+    fixedBankTurnLabel = "Outbound turn at fix";
+    outboundTurnBankDeg = bankLimitDeg;
+    turnRadiusNm = radiusFromGsAndBankNm(outboundTurnAvgGsKt, bankLimitDeg);
+    inboundTurnBankDeg = bankForGsAndRadiusDeg(inboundTurnAvgGsKt, turnRadiusNm);
+  } else {
+    fixedBankTurnLabel = "Inbound turn at outbound end";
+    inboundTurnBankDeg = bankLimitDeg;
+    turnRadiusNm = radiusFromGsAndBankNm(inboundTurnAvgGsKt, bankLimitDeg);
+    outboundTurnBankDeg = bankForGsAndRadiusDeg(outboundTurnAvgGsKt, turnRadiusNm);
+  }
+
+  if (!Number.isFinite(turnRadiusNm) || turnRadiusNm <= 0) {
+    throw new Error("Turn radius is invalid");
+  }
+  if (!Number.isFinite(outboundTurnBankDeg) || !Number.isFinite(inboundTurnBankDeg)) {
+    throw new Error("Computed hold turn bank is invalid");
+  }
 
   const outboundTurnRateDegPerSec = toDegrees((outboundTurnAvgGsKt / 3600) / turnRadiusNm);
   const inboundTurnRateDegPerSec = toDegrees((inboundTurnAvgGsKt / 3600) / turnRadiusNm);
-  const outboundTurnBankDeg = toDegrees(Math.atan((toRadians(outboundTurnRateDegPerSec) * speed.tasKt * KT_TO_MPS) / G0));
-  const inboundTurnBankDeg = toDegrees(Math.atan((toRadians(inboundTurnRateDegPerSec) * speed.tasKt * KT_TO_MPS) / G0));
   const outboundTurnMin = (outboundTurnDeg / outboundTurnRateDegPerSec) / 60;
   const inboundTurnMin = (inboundTurnDeg / inboundTurnRateDegPerSec) / 60;
   const totalTurnMin = outboundTurnMin + inboundTurnMin;
@@ -1786,14 +1817,16 @@ function calculateHoldTiming({
     outboundWcaDeg: outbound.wcaDeg,
     turn1RateDegPerSec: outboundTurnRateDegPerSec,
     turn2RateDegPerSec: inboundTurnRateDegPerSec,
-    referenceTurnRateDegPerSec: turnRef.referenceRateDegPerSec,
-    referenceTurnGsKt: turnRef.referenceGsKt,
+    referenceTurnRateDegPerSec:
+      fixedBankTurnLabel === "Inbound turn at outbound end" ? inboundTurnRateDegPerSec : outboundTurnRateDegPerSec,
+    referenceTurnGsKt: fixedBankTurnLabel === "Inbound turn at outbound end" ? inboundTurnAvgGsKt : outboundTurnAvgGsKt,
     turnRadiusNm,
     turn1AvgGsKt: outboundTurnAvgGsKt,
     turn2AvgGsKt: inboundTurnAvgGsKt,
     turn1BankDeg: outboundTurnBankDeg,
     turn2BankDeg: inboundTurnBankDeg,
-    turnModel: `${format(bankLimitDeg, 1)}° bank radius reference`,
+    turnModel: `${format(bankLimitDeg, 1)}° fixed on wind-behind turn; opposite turn solved for same radius`,
+    fixedBankTurnLabel,
     turn1Deg: outboundTurnDeg,
     turn2Deg: inboundTurnDeg,
     turn1Min: outboundTurnMin,
@@ -3248,10 +3281,7 @@ function bindHolding() {
       rows.push(
         ["__spacer__", ""],
         ["Hold Timing Input Mode", timingMode === "given-total" ? "Given Total Hold Time" : "Given Inbound Leg Time to Fix"],
-        [
-          "Pattern Sequence",
-          `${holdSide === "R" ? "Right turns" : "Left turns"}: Outbound Turn (at fix) -> Outbound Leg -> Inbound Turn (at outbound end) -> Inbound Leg to fix`,
-        ],
+        ["Fixed-Bank Turn (Bank Limit Applied)", `${timing.fixedBankTurnLabel} @ ${format(bankLimitDeg, 1)}°`],
         [
           "Inbound Leg (actual GS time to fix)",
           `${format(timing.inboundLegMin, 2)} min (${formatMinutes(timing.inboundLegMin)})`,
