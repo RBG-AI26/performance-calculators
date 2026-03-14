@@ -178,6 +178,18 @@ button:hover {
   gap: 0.4rem 1rem;
 }
 
+.result-row-emphasis {
+  background: #e9f4ff;
+  border: 1px solid #c6ddf3;
+  border-radius: 8px;
+  padding: 0.3rem 0.5rem;
+}
+
+.result-row-emphasis .result-key {
+  color: #1c4f78;
+  font-weight: 700;
+}
+
 .result-spacer {
   height: 0.6rem;
 }

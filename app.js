@@ -2519,7 +2519,8 @@ function renderRows(target, rows) {
       if (k === "__warning__") {
         return `<div class="result-warning">${v}</div>`;
       }
-      return `<div class="result-row"><span class="result-key">${k}</span><span class="result-value">${v}</span></div>`;
+      const rowClass = k === "Inbound Leg (actual GS time to fix)" ? "result-row result-row-emphasis" : "result-row";
+      return `<div class="${rowClass}"><span class="result-key">${k}</span><span class="result-value">${v}</span></div>`;
     })
     .join("");
 }
@@ -3281,7 +3282,6 @@ function bindHolding() {
       rows.push(
         ["__spacer__", ""],
         ["Hold Timing Input Mode", timingMode === "given-total" ? "Given Total Hold Time" : "Given Inbound Leg Time to Fix"],
-        ["Fixed-Bank Turn (Bank Limit Applied)", `${timing.fixedBankTurnLabel} @ ${format(bankLimitDeg, 1)}°`],
         [
           "Inbound Leg (actual GS time to fix)",
           `${format(timing.inboundLegMin, 2)} min (${formatMinutes(timing.inboundLegMin)})`,
@@ -3301,7 +3301,7 @@ function bindHolding() {
         ["Leg Distance", `${format((timing.inboundLegNm + timing.outboundLegNm) / 2, 2)} NM`],
         [
           "Outbound Turn (at Fix) / Inbound Turn (at Outbound End)",
-          `${format(timing.outboundTurnDeg, 1)}° (${format(timing.outboundTurnMin, 2)} min @ ${format(timing.outboundTurnBankDeg, 1)}° bank) / ${format(timing.inboundTurnDeg, 1)}° (${format(timing.inboundTurnMin, 2)} min @ ${format(timing.inboundTurnBankDeg, 1)}° bank)`,
+          `${format(timing.inboundTurnDeg, 1)}° (${format(timing.inboundTurnMin, 2)} min @ ${format(timing.inboundTurnBankDeg, 1)}° bank) / ${format(timing.outboundTurnDeg, 1)}° (${format(timing.outboundTurnMin, 2)} min @ ${format(timing.outboundTurnBankDeg, 1)}° bank)`,
         ],
         ["Turn Total", `${format(timing.totalTurnMin, 2)} min`],
         ["Turn Radius (common)", `${format(timing.turnRadiusNm, 2)} NM`],
