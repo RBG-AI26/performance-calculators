@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.3.0";
+const APP_VERSION = "v7.4.0";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 
 const R_AIR = 287.05287;
@@ -1714,33 +1714,38 @@ function calculateHoldTiming({
     throw new Error("Turn radius is invalid");
   }
 
-  const turn1Deg = 180;
-  const turn2Deg = 180;
-  const turn1AvgGsKt = averageTurnGroundSpeed({
+  // Holding pattern sequence:
+  // 1) Outbound turn at fix (inbound track -> outbound track)
+  // 2) Outbound leg
+  // 3) Inbound turn at outbound end (outbound track -> inbound track)
+  // 4) Inbound leg back to fix
+  const outboundTurnDeg = 180;
+  const inboundTurnDeg = 180;
+  const outboundTurnAvgGsKt = averageTurnGroundSpeed({
     startTrackDeg: inboundTrack,
     holdSide,
     tasKt: speed.tasKt,
     windFromDeg,
     windSpeedKt,
-    label: "turn 1",
+    label: "outbound turn",
   });
-  const turn2AvgGsKt = averageTurnGroundSpeed({
+  const inboundTurnAvgGsKt = averageTurnGroundSpeed({
     startTrackDeg: outboundTrack,
     holdSide,
     tasKt: speed.tasKt,
     windFromDeg,
     windSpeedKt,
-    label: "turn 2",
+    label: "inbound turn",
   });
   const turnRadiusNm = turnRef.radiusNm;
 
-  const turn1RateDegPerSec = toDegrees((turn1AvgGsKt / 3600) / turnRadiusNm);
-  const turn2RateDegPerSec = toDegrees((turn2AvgGsKt / 3600) / turnRadiusNm);
-  const turn1BankDeg = toDegrees(Math.atan((toRadians(turn1RateDegPerSec) * speed.tasKt * KT_TO_MPS) / G0));
-  const turn2BankDeg = toDegrees(Math.atan((toRadians(turn2RateDegPerSec) * speed.tasKt * KT_TO_MPS) / G0));
-  const turn1Min = (turn1Deg / turn1RateDegPerSec) / 60;
-  const turn2Min = (turn2Deg / turn2RateDegPerSec) / 60;
-  const totalTurnMin = turn1Min + turn2Min;
+  const outboundTurnRateDegPerSec = toDegrees((outboundTurnAvgGsKt / 3600) / turnRadiusNm);
+  const inboundTurnRateDegPerSec = toDegrees((inboundTurnAvgGsKt / 3600) / turnRadiusNm);
+  const outboundTurnBankDeg = toDegrees(Math.atan((toRadians(outboundTurnRateDegPerSec) * speed.tasKt * KT_TO_MPS) / G0));
+  const inboundTurnBankDeg = toDegrees(Math.atan((toRadians(inboundTurnRateDegPerSec) * speed.tasKt * KT_TO_MPS) / G0));
+  const outboundTurnMin = (outboundTurnDeg / outboundTurnRateDegPerSec) / 60;
+  const inboundTurnMin = (inboundTurnDeg / inboundTurnRateDegPerSec) / 60;
+  const totalTurnMin = outboundTurnMin + inboundTurnMin;
   const gsRatioInToOut = inbound.gsKt / outbound.gsKt;
 
   let computedInboundMin;
@@ -1779,20 +1784,30 @@ function calculateHoldTiming({
     outboundGroundSpeedKt: outbound.gsKt,
     inboundWcaDeg: inbound.wcaDeg,
     outboundWcaDeg: outbound.wcaDeg,
-    turn1RateDegPerSec,
-    turn2RateDegPerSec,
+    turn1RateDegPerSec: outboundTurnRateDegPerSec,
+    turn2RateDegPerSec: inboundTurnRateDegPerSec,
     referenceTurnRateDegPerSec: turnRef.referenceRateDegPerSec,
     referenceTurnGsKt: turnRef.referenceGsKt,
     turnRadiusNm,
-    turn1AvgGsKt,
-    turn2AvgGsKt,
-    turn1BankDeg,
-    turn2BankDeg,
+    turn1AvgGsKt: outboundTurnAvgGsKt,
+    turn2AvgGsKt: inboundTurnAvgGsKt,
+    turn1BankDeg: outboundTurnBankDeg,
+    turn2BankDeg: inboundTurnBankDeg,
     turnModel: `${format(bankLimitDeg, 1)}° bank radius reference`,
-    turn1Deg,
-    turn2Deg,
-    turn1Min,
-    turn2Min,
+    turn1Deg: outboundTurnDeg,
+    turn2Deg: inboundTurnDeg,
+    turn1Min: outboundTurnMin,
+    turn2Min: inboundTurnMin,
+    outboundTurnRateDegPerSec,
+    inboundTurnRateDegPerSec,
+    outboundTurnAvgGsKt,
+    inboundTurnAvgGsKt,
+    outboundTurnBankDeg,
+    inboundTurnBankDeg,
+    outboundTurnDeg,
+    inboundTurnDeg,
+    outboundTurnMin,
+    inboundTurnMin,
     totalTurnMin,
     gsRatioInToOut,
     inboundLegMin: computedInboundMin,
@@ -3232,7 +3247,11 @@ function bindHolding() {
 
       rows.push(
         ["__spacer__", ""],
-        ["Hold Timing Input Mode", timingMode === "given-total" ? "Given Total Hold Time" : "Given Inbound Leg Time"],
+        ["Hold Timing Input Mode", timingMode === "given-total" ? "Given Total Hold Time" : "Given Inbound Leg Time to Fix"],
+        [
+          "Pattern Sequence",
+          `${holdSide === "R" ? "Right turns" : "Left turns"}: Outbound Turn (at fix) -> Outbound Leg -> Inbound Turn (at outbound end) -> Inbound Leg to fix`,
+        ],
         [
           "Inbound Leg (actual GS time to fix)",
           `${format(timing.inboundLegMin, 2)} min (${formatMinutes(timing.inboundLegMin)})`,
@@ -3251,8 +3270,8 @@ function bindHolding() {
         ],
         ["Leg Distance", `${format((timing.inboundLegNm + timing.outboundLegNm) / 2, 2)} NM`],
         [
-          "Turn 1 / Turn 2",
-          `${format(timing.turn1Deg, 1)}° (${format(timing.turn1Min, 2)} min @ ${format(timing.turn1BankDeg, 1)}° bank) / ${format(timing.turn2Deg, 1)}° (${format(timing.turn2Min, 2)} min @ ${format(timing.turn2BankDeg, 1)}° bank)`,
+          "Outbound Turn (at Fix) / Inbound Turn (at Outbound End)",
+          `${format(timing.outboundTurnDeg, 1)}° (${format(timing.outboundTurnMin, 2)} min @ ${format(timing.outboundTurnBankDeg, 1)}° bank) / ${format(timing.inboundTurnDeg, 1)}° (${format(timing.inboundTurnMin, 2)} min @ ${format(timing.inboundTurnBankDeg, 1)}° bank)`,
         ],
         ["Turn Total", `${format(timing.totalTurnMin, 2)} min`],
         ["Turn Radius (common)", `${format(timing.turnRadiusNm, 2)} NM`],
