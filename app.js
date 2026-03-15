@@ -2649,8 +2649,10 @@ function installClickToClearInputs() {
     (event) => {
       const target = event.target;
       if (!isClickToClearInput(target)) return;
-      if (!clickPending.has(target)) return;
-      clickPending.delete(target);
+      const focusedFromInput = isClickToClearInput(event.relatedTarget);
+      const focusedByTap = clickPending.has(target);
+      if (!focusedByTap && !focusedFromInput) return;
+      if (focusedByTap) clickPending.delete(target);
       if (target.value === "") return;
       target.value = "";
       persistInputState();
