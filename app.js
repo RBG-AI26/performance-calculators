@@ -3288,7 +3288,7 @@ function bindHolding() {
         ],
         ["Outbound Leg (wind-corrected)", `${format(timing.outboundLegMin, 2)} min`],
         [
-          "Total Hold Time (fix crossing to fix crossing)",
+          "Total Hold Time",
           `${format(timing.totalHoldMin, 2)} min (${formatMinutes(timing.totalHoldMin)})`,
         ],
         ["Timing IAS / TAS / Mach", `${format(timing.iasKt, 0)} / ${format(timing.tasKt, 0)} kt / ${format(timing.mach, 3)}`],
@@ -3300,7 +3300,7 @@ function bindHolding() {
         ],
         ["Leg Distance", `${format((timing.inboundLegNm + timing.outboundLegNm) / 2, 2)} NM`],
         [
-          "Outbound Turn (at Fix) / Inbound Turn (at Outbound End)",
+          "Outbound Turn / Inbound Turn",
           `${format(timing.outboundTurnMin, 2)} min @ ${format(timing.outboundTurnBankDeg, 1)}° bank / ${format(timing.inboundTurnMin, 2)} min @ ${format(timing.inboundTurnBankDeg, 1)}° bank`,
         ],
         ["Turn Total", `${format(timing.totalTurnMin, 2)} min`],
