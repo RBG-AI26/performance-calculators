@@ -2613,6 +2613,52 @@ function installInputStatePersistence() {
   );
 }
 
+function isClickToClearInput(el) {
+  if (!(el instanceof HTMLInputElement)) return false;
+  if (el.disabled || el.readOnly) return false;
+  const type = (el.type || "").toLowerCase();
+  return ![
+    "checkbox",
+    "radio",
+    "button",
+    "submit",
+    "reset",
+    "file",
+    "hidden",
+    "range",
+    "color",
+  ].includes(type);
+}
+
+function installClickToClearInputs() {
+  const clickPending = new WeakSet();
+
+  const markClickPending = (event) => {
+    const target = event.target;
+    if (isClickToClearInput(target)) {
+      clickPending.add(target);
+    }
+  };
+
+  document.addEventListener("pointerdown", markClickPending, true);
+  document.addEventListener("mousedown", markClickPending, true);
+  document.addEventListener("touchstart", markClickPending, true);
+
+  document.addEventListener(
+    "focusin",
+    (event) => {
+      const target = event.target;
+      if (!isClickToClearInput(target)) return;
+      if (!clickPending.has(target)) return;
+      clickPending.delete(target);
+      if (target.value === "") return;
+      target.value = "";
+      persistInputState();
+    },
+    true,
+  );
+}
+
 function bindTripFuel() {
   const form = document.querySelector("#trip-fuel-form");
   const out = document.querySelector("#trip-fuel-out");
@@ -3849,6 +3895,7 @@ setAppVersionLabel();
 setAltFlRangeLabels();
 restorePersistedInputState();
 installInputStatePersistence();
+installClickToClearInputs();
 bindTripFuel();
 bindLrcAltitudeLimits();
 bindEngineOut();
