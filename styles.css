@@ -279,6 +279,7 @@ button:hover {
 
 @media (min-width: 981px) and (max-width: 1366px) and (orientation: landscape) {
   #trip-fuel-form,
+  #dpa-form,
   #lrc-altitude-form,
   #engine-out-drift-form,
   #engine-out-diversion-form,

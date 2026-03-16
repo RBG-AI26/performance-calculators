@@ -2799,6 +2799,59 @@ function bindTripFuel() {
   form.dispatchEvent(new Event("submit"));
 }
 
+function bindDpaCalculator() {
+  const form = document.querySelector("#dpa-form");
+  const out = document.querySelector("#dpa-out");
+  if (!form || !out) return;
+
+  const inputDefs = [
+    { id: "#dpa-ff", label: "FF" },
+    { id: "#dpa-app", label: "App" },
+    { id: "#dpa-arrival", label: "Arrival" },
+    { id: "#dpa-holding-wx", label: "Holding - Wx" },
+    { id: "#dpa-holding-sng-rwy", label: "Holding - SNG RWY" },
+    { id: "#dpa-holding-other", label: "Holding - Other" },
+    { id: "#dpa-divn-nda", label: "Divn/NDA" },
+    { id: "#dpa-diversion-hold", label: "Diversion Hold" },
+    { id: "#dpa-cont", label: "Cont" },
+    { id: "#dpa-frf", label: "FRF" },
+    { id: "#dpa-req-additional", label: "Req Additional" },
+  ];
+
+  const inputEls = inputDefs.map((def) => ({ ...def, el: document.querySelector(def.id) }));
+  if (inputEls.some((entry) => !entry.el)) return;
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    try {
+      const values = inputEls.map(({ label, el }) => {
+        const value = parseNumOrDefault(el.value, 0);
+        if (!Number.isFinite(value)) {
+          throw new Error(`${label} is invalid`);
+        }
+        if (value < 0) {
+          throw new Error(`${label} must be >= 0`);
+        }
+        if (fieldIsBlank(el.value)) {
+          el.value = formatInputNumber(0, 0);
+        }
+        return { label, value };
+      });
+
+      const total = values.reduce((sum, entry) => sum + entry.value, 0);
+      const rows = [
+        ...values.map((entry) => [entry.label, `${format(entry.value, 0)} kg`]),
+        ["DPA Total", `${format(total, 0)} kg`],
+      ];
+      renderRows(out, rows);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  form.dispatchEvent(new Event("submit"));
+}
+
 function bindLrcAltitudeLimits() {
   const form = document.querySelector("#lrc-altitude-form");
   const out = document.querySelector("#lrc-altitude-out");
@@ -4070,6 +4123,7 @@ restorePersistedInputState();
 installInputStatePersistence();
 installClickToClearInputs();
 bindTripFuel();
+bindDpaCalculator();
 bindLrcAltitudeLimits();
 bindEngineOut();
 bindDiversion();
