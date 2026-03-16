@@ -41,6 +41,8 @@ const GO_AROUND_ANTI_ICE_ADJUSTMENT = {
   engineOn: { oatLe8: -0.1, oatGt8Le20: -0.2 },
   engineWingOn: { oatLe8: -0.1, oatGt8Le20: -0.2 },
 };
+const COG_LIMIT_WEIGHT_AXIS_1000KG = [108, 120, 140, 160, 180, 200, 220, 240];
+const COG_LIMIT_VALUES_PCT_MAC = [23.1, 24.7, 27.4, 29.8, 32.1, 34.4, 36.8, 37.5];
 
 function parseNum(value) {
   const n = Number(value);
@@ -3812,6 +3814,57 @@ function bindGoAround() {
   form.dispatchEvent(new Event("submit"));
 }
 
+function calculateCogLimit(grossWeight1000Kg) {
+  if (!Number.isFinite(grossWeight1000Kg) || grossWeight1000Kg <= 0) {
+    throw new Error("Gross weight must be > 0");
+  }
+
+  const minWeight = COG_LIMIT_WEIGHT_AXIS_1000KG[0];
+  const maxWeight = COG_LIMIT_WEIGHT_AXIS_1000KG[COG_LIMIT_WEIGHT_AXIS_1000KG.length - 1];
+  const usedWeight = clamp(grossWeight1000Kg, minWeight, maxWeight);
+  const warnings = [];
+  if (usedWeight !== grossWeight1000Kg) {
+    warnings.push(`Gross weight clamped to ${format(usedWeight, 1)} (1000 kg)`);
+  }
+
+  return {
+    requestedWeight1000Kg: grossWeight1000Kg,
+    usedWeight1000Kg: usedWeight,
+    cgLimitPctMac: linear(COG_LIMIT_WEIGHT_AXIS_1000KG, COG_LIMIT_VALUES_PCT_MAC, usedWeight),
+    warnings,
+  };
+}
+
+function bindCogLimit() {
+  const form = document.querySelector("#cog-limit-form");
+  const out = document.querySelector("#cog-limit-out");
+  const weightEl = document.querySelector("#cog-weight");
+  if (!form || !out || !weightEl) return;
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (missingFieldsBanner(out, [fieldIsBlank(weightEl.value) ? "Gross Weight (1000 kg)" : ""])) {
+      return;
+    }
+    try {
+      const grossWeight1000Kg = parseNum(weightEl.value);
+      const result = calculateCogLimit(grossWeight1000Kg);
+      weightEl.value = formatInputNumber(result.usedWeight1000Kg, 1);
+
+      const rows = [
+        ...(result.warnings.length ? [["__warning__", `Input warning: ${result.warnings.join(" | ")}`]] : []),
+        ["Gross Weight (used)", `${format(result.usedWeight1000Kg, 1)} (1000 kg)`],
+        ["CG Limit", `${format(result.cgLimitPctMac, 2)} %MAC`],
+      ];
+      renderRows(out, rows);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  form.dispatchEvent(new Event("submit"));
+}
+
 function bindGlobalSettings() {
   const globalPerfEl = document.querySelector("#global-perf-adjust");
   if (!globalPerfEl) return;
@@ -3975,5 +4028,6 @@ bindGoAround();
 bindHolding();
 bindLoseTime();
 bindConversion();
+bindCogLimit();
 bindGlobalSettings();
 registerServiceWorker();

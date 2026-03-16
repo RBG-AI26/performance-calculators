@@ -391,6 +391,20 @@
         </form>
         <div id="conversion-out" class="results"></div>
       </section>
+
+      <section class="panel" aria-labelledby="cog-limit-heading">
+        <h2 id="cog-limit-heading">CoG Limit</h2>
+        <p class="module-note">787-9 gross weight to CG limit lookup</p>
+        <p class="module-note module-limits">Limits: Gross Weight 108-240+ (1000 kg)</p>
+        <form id="cog-limit-form" class="grid">
+          <label>
+            Gross Weight (1000 kg)
+            <input type="number" step="0.1" id="cog-weight" value="180" />
+          </label>
+          <button type="submit">Calculate</button>
+        </form>
+        <div id="cog-limit-out" class="results"></div>
+      </section>
     </main>
 
     <script src="./data.js"></script>
