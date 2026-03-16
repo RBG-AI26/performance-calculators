@@ -49,6 +49,12 @@ function parseNum(value) {
   return Number.isFinite(n) ? n : NaN;
 }
 
+function parseNumOrDefault(value, defaultValue = 0) {
+  const text = String(value ?? "").trim();
+  if (text === "") return defaultValue;
+  return parseNum(text);
+}
+
 function parseAltOrFlInput(rawInput, label = "Alt/FL") {
   const rawText = String(rawInput ?? "").trim();
   if (rawText === "") {
@@ -1095,7 +1101,7 @@ function calculateGoAroundGradient({
   };
 }
 
-function buildFuelRequirement({ flightFuelKg, landingWeightT, additionalHoldingMin, perfAdjust }) {
+function buildFuelRequirement({ flightFuelKg, landingWeightT, additionalHoldingMin, arrivalAllowanceMin = 0, perfAdjust }) {
   if (!Number.isFinite(flightFuelKg) || flightFuelKg < 0) {
     throw new Error("Flight fuel is invalid");
   }
@@ -1107,6 +1113,12 @@ function buildFuelRequirement({ flightFuelKg, landingWeightT, additionalHoldingM
   }
   if (additionalHoldingMin < 0) {
     throw new Error("Additional holding minutes must be >= 0");
+  }
+  if (!Number.isFinite(arrivalAllowanceMin)) {
+    throw new Error("Arrival allowance minutes are invalid");
+  }
+  if (arrivalAllowanceMin < 0) {
+    throw new Error("Arrival allowance minutes must be >= 0");
   }
 
   let frfFfEng;
@@ -1125,13 +1137,15 @@ function buildFuelRequirement({ flightFuelKg, landingWeightT, additionalHoldingM
   const additionalHoldFuelHrKg = additionalHoldFfEng * 2;
   const frfKg = frfFuelHrKg * 0.5;
   const extraHoldingKg = additionalHoldFuelHrKg * (additionalHoldingMin / 60);
+  const arrivalAllowanceKg = frfFuelHrKg * (arrivalAllowanceMin / 60);
   const contingencyKg = clamp(flightFuelKg * 0.05, MIN_CONTINGENCY_KG, MAX_CONTINGENCY_KG);
-  const totalFuelKg = flightFuelKg + frfKg + contingencyKg + extraHoldingKg + FIXED_ALLOWANCE_KG;
+  const totalFuelKg = flightFuelKg + frfKg + contingencyKg + extraHoldingKg + arrivalAllowanceKg + FIXED_ALLOWANCE_KG;
 
   return {
     frfKg,
     contingencyKg,
     extraHoldingKg,
+    arrivalAllowanceKg,
     fixedAllowanceKg: FIXED_ALLOWANCE_KG,
     totalFuelKg,
   };
@@ -1153,12 +1167,13 @@ function shortTripCore(anm, weight, perfAdjust) {
   return { flightFuelKg, altitudeFt, timeMinutes };
 }
 
-function shortTripFuelAndAlt(anm, weight, perfAdjust, additionalHoldingMin) {
+function shortTripFuelAndAlt(anm, weight, perfAdjust, additionalHoldingMin, arrivalAllowanceMin = 0) {
   const core = shortTripCore(anm, weight, perfAdjust);
   const fuelBuildUp = buildFuelRequirement({
     flightFuelKg: core.flightFuelKg,
     landingWeightT: weight,
     additionalHoldingMin,
+    arrivalAllowanceMin,
     perfAdjust,
   });
 
@@ -1167,6 +1182,7 @@ function shortTripFuelAndAlt(anm, weight, perfAdjust, additionalHoldingMin) {
     frfKg: fuelBuildUp.frfKg,
     contingencyKg: fuelBuildUp.contingencyKg,
     extraHoldingKg: fuelBuildUp.extraHoldingKg,
+    arrivalAllowanceKg: fuelBuildUp.arrivalAllowanceKg,
     fixedAllowanceKg: fuelBuildUp.fixedAllowanceKg,
     totalFuelKg: fuelBuildUp.totalFuelKg,
     altitude: core.altitudeFt,
@@ -1201,12 +1217,13 @@ function longRangeCore(anm, weight, perfAdjust) {
   };
 }
 
-function longRangeFuel(anm, weight, perfAdjust, additionalHoldingMin) {
+function longRangeFuel(anm, weight, perfAdjust, additionalHoldingMin, arrivalAllowanceMin = 0) {
   const core = longRangeCore(anm, weight, perfAdjust);
   const fuelBuildUp = buildFuelRequirement({
     flightFuelKg: core.flightFuelKg,
     landingWeightT: weight,
     additionalHoldingMin,
+    arrivalAllowanceMin,
     perfAdjust,
   });
 
@@ -1215,6 +1232,7 @@ function longRangeFuel(anm, weight, perfAdjust, additionalHoldingMin) {
     frfKg: fuelBuildUp.frfKg,
     contingencyKg: fuelBuildUp.contingencyKg,
     extraHoldingKg: fuelBuildUp.extraHoldingKg,
+    arrivalAllowanceKg: fuelBuildUp.arrivalAllowanceKg,
     fixedAllowanceKg: fuelBuildUp.fixedAllowanceKg,
     totalFuelKg: fuelBuildUp.totalFuelKg,
     timeMinutes: core.timeMinutes,
@@ -1268,7 +1286,7 @@ function estimateLongSectorCruiseGuidance(landingWeightT, flightFuelKg, tripTime
   };
 }
 
-function calculateTripFuel(gnm, wind, weight, perfAdjust, additionalHoldingMin) {
+function calculateTripFuel(gnm, wind, weight, perfAdjust, additionalHoldingMin, arrivalAllowanceMin = 0) {
   const shortAnm = (() => {
     try {
       return shortTripAnmFromGnm(gnm, wind);
@@ -1332,6 +1350,7 @@ function calculateTripFuel(gnm, wind, weight, perfAdjust, additionalHoldingMin) 
     flightFuelKg,
     landingWeightT: weight,
     additionalHoldingMin,
+    arrivalAllowanceMin,
     perfAdjust,
   });
   const longGuidance = anmDisplay >= 800 ? estimateLongSectorCruiseGuidance(weight, flightFuelKg, timeMinutes) : null;
@@ -1346,6 +1365,7 @@ function calculateTripFuel(gnm, wind, weight, perfAdjust, additionalHoldingMin) 
     frfKg: fuelBuildUp.frfKg,
     contingencyKg: fuelBuildUp.contingencyKg,
     extraHoldingKg: fuelBuildUp.extraHoldingKg,
+    arrivalAllowanceKg: fuelBuildUp.arrivalAllowanceKg,
     fixedAllowanceKg: fuelBuildUp.fixedAllowanceKg,
     totalFuelKg: fuelBuildUp.totalFuelKg,
     timeMinutes,
@@ -1354,7 +1374,7 @@ function calculateTripFuel(gnm, wind, weight, perfAdjust, additionalHoldingMin) 
   };
 }
 
-function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdjust, additionalHoldingMin) {
+function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdjust, additionalHoldingMin, arrivalAllowanceMin = 0) {
   const tableSet = getDiversionBandTable(bandKey);
   if (!tableSet) {
     throw new Error("Diversion LRC table is missing");
@@ -1419,6 +1439,7 @@ function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdj
     flightFuelKg: adjustedFuelKg,
     landingWeightT: reserveCalcWeightT,
     additionalHoldingMin,
+    arrivalAllowanceMin,
     perfAdjust,
   });
 
@@ -1433,6 +1454,7 @@ function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdj
     frfKg: fuelBuildUp.frfKg,
     contingencyKg: fuelBuildUp.contingencyKg,
     extraHoldingKg: fuelBuildUp.extraHoldingKg,
+    arrivalAllowanceKg: fuelBuildUp.arrivalAllowanceKg,
     fixedAllowanceKg: fuelBuildUp.fixedAllowanceKg,
     totalFuelKg: fuelBuildUp.totalFuelKg,
     timeMinutes,
@@ -2685,13 +2707,14 @@ function bindTripFuel() {
   const form = document.querySelector("#trip-fuel-form");
   const out = document.querySelector("#trip-fuel-out");
   if (!form || !out) return;
+  const windEl = document.querySelector("#trip-wind");
+  const arrivalAllowanceEl = document.querySelector("#trip-arrival-min");
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     if (
       missingFieldsBanner(out, [
         fieldIsBlank(document.querySelector("#trip-gnm").value) ? "Ground Distance (GNM)" : "",
-        fieldIsBlank(document.querySelector("#trip-wind").value) ? "Wind +/-" : "",
         fieldIsBlank(document.querySelector("#trip-weight").value) ? "Landing Weight" : "",
         fieldIsBlank(document.querySelector("#trip-hold-min").value) ? "Additional Holding Fuel (min)" : "",
       ])
@@ -2700,11 +2723,19 @@ function bindTripFuel() {
     }
     try {
       const gnm = parseNum(document.querySelector("#trip-gnm").value);
-      const wind = parseNum(document.querySelector("#trip-wind").value);
+      const wind = parseNumOrDefault(windEl?.value, 0);
       const weight = parseNum(document.querySelector("#trip-weight").value);
       const perfAdjust = getGlobalPerfAdjust();
       const holdingMin = parseNum(document.querySelector("#trip-hold-min").value);
-      const result = calculateTripFuel(gnm, wind, weight, perfAdjust, holdingMin);
+      const arrivalAllowanceMin = parseNumOrDefault(arrivalAllowanceEl?.value, 0);
+      const result = calculateTripFuel(gnm, wind, weight, perfAdjust, holdingMin, arrivalAllowanceMin);
+
+      if (windEl && fieldIsBlank(windEl.value)) {
+        windEl.value = formatInputNumber(0, 0);
+      }
+      if (arrivalAllowanceEl && fieldIsBlank(arrivalAllowanceEl.value)) {
+        arrivalAllowanceEl.value = formatInputNumber(0, 0);
+      }
 
       const rows = [
         ["Air Distance (ANM)", `${format(result.anmDisplay, 0)} nm`],
@@ -2712,13 +2743,14 @@ function bindTripFuel() {
         ["FRF (30 min hold @ 1500 ft)", `${format(result.frfKg, 0)} kg`],
         ["Contingency Fuel (5%, min 350, max 1200)", `${format(result.contingencyKg, 0)} kg`],
         [`Additional Holding Fuel (${format(holdingMin, 1)} min)`, `${format(result.extraHoldingKg, 0)} kg`],
+        [`Arrival Allowance (${format(arrivalAllowanceMin, 1)} min)`, `${format(result.arrivalAllowanceKg, 0)} kg`],
         ["Approach Fuel", `${format(result.fixedAllowanceKg, 0)} kg`],
         ["Total Fuel Required", `${format(result.totalFuelKg, 0)} kg`],
         ["Time", formatMinutes(result.timeMinutes)],
       ];
 
       if (result.anmDisplay < 800 && Number.isFinite(result.suggestedAltFt)) {
-        rows.splice(7, 0, ["Suggested Alt", `${format(result.suggestedAltFt, 0)} ft`]);
+        rows.splice(rows.length - 1, 0, ["Suggested Alt", `${format(result.suggestedAltFt, 0)} ft`]);
       }
 
       if (result.longGuidance) {
@@ -2969,7 +3001,6 @@ function bindEngineOut() {
           fieldIsBlank(weightEl.value) ? "Start Weight" : "",
           fieldIsBlank(isaDevEl.value) ? "ISA Deviation" : "",
           fieldIsBlank(driftGnmEl.value) ? "Engine out Cruise Distance" : "",
-          fieldIsBlank(driftWindEl.value) ? "Driftdown Wind +/-" : "",
         ])
       ) {
         return;
@@ -2979,7 +3010,7 @@ function bindEngineOut() {
         const weightInputT = parseNum(weightEl.value);
         const isaDeviationCInput = parseNum(isaDevEl.value);
         const driftGnmInput = parseNum(driftGnmEl.value);
-        const driftWindInputKt = parseNum(driftWindEl.value);
+        const driftWindInputKt = parseNumOrDefault(driftWindEl.value, 0);
         const perfAdjust = getGlobalPerfAdjust();
 
         if (!Number.isFinite(weightInputT) || weightInputT <= 0) {
@@ -2991,9 +3022,7 @@ function bindEngineOut() {
         if (!Number.isFinite(driftGnmInput)) {
           throw new Error("Engine out Cruise Distance is invalid");
         }
-        if (!Number.isFinite(driftWindInputKt)) {
-          throw new Error("Driftdown wind is invalid");
-        }
+        if (fieldIsBlank(driftWindEl.value)) driftWindEl.value = formatInputNumber(0, 0);
 
         const driftdownRanges = getDriftdownRanges();
         const weightUsedT = clamp(weightInputT, driftdownRanges.minWeightT, driftdownRanges.maxWeightT);
@@ -3064,7 +3093,6 @@ function bindEngineOut() {
         missingFieldsBanner(diversionOut, [
           fieldIsBlank(eoDiversionWeightEl.value) ? "Start Weight" : "",
           fieldIsBlank(eoDiversionGnmEl.value) ? "EO LRC Diversion Distance" : "",
-          fieldIsBlank(eoDiversionWindEl.value) ? "EO LRC Diversion Wind +/-" : "",
           fieldIsBlank(eoDiversionAltEl.value) ? "EO LRC Diversion Alt/FL" : "",
         ])
       ) {
@@ -3074,7 +3102,7 @@ function bindEngineOut() {
       try {
         const weightInputT = parseNum(eoDiversionWeightEl.value);
         const gnmInput = parseNum(eoDiversionGnmEl.value);
-        const windInputKt = parseNum(eoDiversionWindEl.value);
+        const windInputKt = parseNumOrDefault(eoDiversionWindEl.value, 0);
         const eoDiversionAltInput = parseAltOrFlInput(eoDiversionAltEl.value, "EO LRC Diversion Alt/FL");
         const altitudeFt = eoDiversionAltInput.altitudeFt;
         const perfAdjust = getGlobalPerfAdjust();
@@ -3085,9 +3113,7 @@ function bindEngineOut() {
         if (!Number.isFinite(gnmInput)) {
           throw new Error("EO LRC Diversion Distance is invalid");
         }
-        if (!Number.isFinite(windInputKt)) {
-          throw new Error("EO LRC Diversion Wind +/- is invalid");
-        }
+        if (fieldIsBlank(eoDiversionWindEl.value)) eoDiversionWindEl.value = formatInputNumber(0, 0);
         if (eoDiversionAltInput.isThreeDigitFl) {
           eoDiversionAltEl.value = formatInputNumber(altitudeFt, 0);
         }
@@ -3124,14 +3150,14 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
   const altEl = document.querySelector(fieldIds.alt);
   const weightEl = document.querySelector(fieldIds.weight);
   const holdMinEl = document.querySelector(fieldIds.holdMin);
-  if (!gnmEl || !windEl || !altEl || !weightEl || !holdMinEl) return;
+  const arrivalAllowanceEl = document.querySelector(fieldIds.arrivalMin);
+  if (!gnmEl || !windEl || !altEl || !weightEl || !holdMinEl || !arrivalAllowanceEl) return;
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     if (
       missingFieldsBanner(out, [
         fieldIsBlank(gnmEl.value) ? "Ground Distance (GNM)" : "",
-        fieldIsBlank(windEl.value) ? "Wind +/-" : "",
         fieldIsBlank(altEl.value) ? "Alt/FL" : "",
         fieldIsBlank(weightEl.value) ? "Start Weight" : "",
         fieldIsBlank(holdMinEl.value) ? "Additional Holding Fuel (min)" : "",
@@ -3141,17 +3167,30 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
     }
     try {
       const gnm = parseNum(gnmEl.value);
-      const wind = parseNum(windEl.value);
+      const wind = parseNumOrDefault(windEl.value, 0);
       const altInput = parseAltOrFlInput(altEl.value, altLabel);
       const weightT = parseNum(weightEl.value);
       const holdingMin = parseNum(holdMinEl.value);
+      const arrivalAllowanceMin = parseNumOrDefault(arrivalAllowanceEl.value, 0);
       const perfAdjust = getGlobalPerfAdjust();
-      const result = diversionLrcFuelByBand(bandKey, gnm, wind, altInput.altitudeFt, weightT, perfAdjust, holdingMin);
+      const result = diversionLrcFuelByBand(
+        bandKey,
+        gnm,
+        wind,
+        altInput.altitudeFt,
+        weightT,
+        perfAdjust,
+        holdingMin,
+        arrivalAllowanceMin,
+      );
 
       gnmEl.value = formatInputNumber(result.usedInputs.gnm, 0);
       windEl.value = formatInputNumber(result.usedInputs.wind, 0);
       altEl.value = formatInputNumber(result.usedInputs.altitudeFt, 0);
       weightEl.value = formatInputNumber(result.usedInputs.weightT, 1);
+      if (fieldIsBlank(arrivalAllowanceEl.value)) {
+        arrivalAllowanceEl.value = formatInputNumber(0, 0);
+      }
 
       const rows = [
         ...(result.warnings.length ? [["__warning__", `Input warning: ${result.warnings.join(" | ")}`]] : []),
@@ -3160,6 +3199,7 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
         ["FRF (30 min hold @ 1500 ft)", `${format(result.frfKg, 0)} kg`],
         ["Contingency Fuel (5%, min 350, max 1200)", `${format(result.contingencyKg, 0)} kg`],
         [`Additional Holding Fuel (${format(holdingMin, 1)} min)`, `${format(result.extraHoldingKg, 0)} kg`],
+        [`Arrival Allowance (${format(arrivalAllowanceMin, 1)} min)`, `${format(result.arrivalAllowanceKg, 0)} kg`],
         ["Approach Fuel", `${format(result.fixedAllowanceKg, 0)} kg`],
         ["Total Fuel Required", `${format(result.totalFuelKg, 0)} kg`],
         ["Time", formatMinutes(result.timeMinutes)],
@@ -3184,6 +3224,7 @@ function bindDiversion() {
       alt: "#div-low-alt",
       weight: "#div-low-weight",
       holdMin: "#div-low-hold-min",
+      arrivalMin: "#div-low-arrival-min",
     },
     altLabel: "Diversion Low Alt/FL",
   });
@@ -3197,6 +3238,7 @@ function bindDiversion() {
       alt: "#div-high-alt",
       weight: "#div-high-weight",
       holdMin: "#div-high-hold-min",
+      arrivalMin: "#div-high-arrival-min",
     },
     altLabel: "Diversion High Alt/FL",
   });
@@ -3243,8 +3285,6 @@ function bindHolding() {
         fieldIsBlank(document.querySelector("#hold-alt").value) ? "Alt/FL" : "",
         fieldIsBlank(document.querySelector("#fuel-available").value) ? "Fuel Available" : "",
         fieldIsBlank(document.querySelector("#hold-inbound-course").value) ? "Inbound Course" : "",
-        fieldIsBlank(document.querySelector("#hold-wind-dir").value) ? "Wind Direction" : "",
-        fieldIsBlank(document.querySelector("#hold-wind-speed").value) ? "Wind Speed" : "",
       ])
     ) {
       return;
@@ -3266,8 +3306,10 @@ function bindHolding() {
       const perfAdjust = getGlobalPerfAdjust();
       const holdSide = String(document.querySelector("#hold-side").value || "R").toUpperCase();
       const inboundCourseDeg = parseNum(document.querySelector("#hold-inbound-course").value);
-      const windFromDeg = parseNum(document.querySelector("#hold-wind-dir").value);
-      const windSpeedKt = parseNum(document.querySelector("#hold-wind-speed").value);
+      const windDirEl = document.querySelector("#hold-wind-dir");
+      const windSpeedEl = document.querySelector("#hold-wind-speed");
+      const windFromDeg = parseNumOrDefault(windDirEl.value, 0);
+      const windSpeedKt = parseNumOrDefault(windSpeedEl.value, 0);
       const timingIasRaw = String(document.querySelector("#hold-timing-ias").value || "").trim();
       const bankLimitRaw = String(document.querySelector("#hold-bank-limit").value || "").trim();
       const temperaturePair = resolveTemperaturePair({
@@ -3313,6 +3355,8 @@ function bindHolding() {
       if (!Number.isFinite(windSpeedKt) || windSpeedKt < 0) {
         throw new Error("Wind speed must be >= 0 kt");
       }
+      if (fieldIsBlank(windDirEl.value)) windDirEl.value = formatInputNumber(0, 0);
+      if (fieldIsBlank(windSpeedEl.value)) windSpeedEl.value = formatInputNumber(0, 0);
 
       let timingMode;
       if (totalHoldRaw !== "" && inboundLegRaw !== "") {
@@ -3451,7 +3495,6 @@ function bindLoseTime() {
         fieldIsBlank(document.querySelector("#lt-weight").value) ? "Current Weight" : "",
         fieldIsBlank(document.querySelector("#lt-fl").value) ? "Current Alt/FL" : "",
         fieldIsBlank(document.querySelector("#lt-delay").value) ? "Required Delay" : "",
-        fieldIsBlank(document.querySelector("#lt-wind").value) ? "Wind" : "",
       ])
     ) {
       return;
@@ -3474,7 +3517,8 @@ function bindLoseTime() {
       const startFlInput = parseAltOrFlInput(startFlEl.value, "Current Alt/FL");
       const startFl = startFlInput.flightLevel;
       const requiredDelayMin = parseNum(document.querySelector("#lt-delay").value);
-      const windKt = parseNum(document.querySelector("#lt-wind").value);
+      const ltWindEl = document.querySelector("#lt-wind");
+      const windKt = parseNumOrDefault(ltWindEl.value, 0);
       const perfAdjust = getGlobalPerfAdjust();
       const levelChangeMode = levelModeEl.value;
       const newFl =
@@ -3495,6 +3539,7 @@ function bindLoseTime() {
           newFlEl.value = formatInputNumber(newFl, 0);
         }
       }
+      if (fieldIsBlank(ltWindEl.value)) ltWindEl.value = formatInputNumber(0, 0);
 
       const levelChange = {
         mode: levelChangeMode,
