@@ -3182,8 +3182,6 @@ function bindEngineOut() {
             `${format(eoDiversion.usedInputs.altitudeFt, 0)} ft (FL${format(eoDiversion.usedInputs.altitudeFt / 100, 0)})`,
           ],
           ["EO Diversion Air Distance (ANM)", `${format(eoDiversion.anm, 0)} nm`],
-          ["EO Diversion Reference Fuel", `${format(eoDiversion.referenceFuel1000Kg * 1000, 0)} kg`],
-          ["EO Diversion Weight Adjustment", `${format(eoDiversion.adjustment1000Kg * 1000, 0)} kg`],
           ["EO Diversion Flight Fuel", `${format(eoDiversion.flightFuelKg, 0)} kg`],
           ["EO Diversion Time", `${format(eoDiversion.timeMinutes, 1)} min (${formatMinutes(eoDiversion.timeMinutes)})`],
         ]);
