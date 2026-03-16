@@ -10,6 +10,7 @@ const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
 const APP_VERSION = "v7.6.0";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
+const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 
 const R_AIR = 287.05287;
 const GAMMA = 1.4;
@@ -154,26 +155,45 @@ function getLrcTableFlRange() {
   };
 }
 
-function getDiversionAltitudeRangeFt() {
-  if (!DIVERSION_LRC_TABLE) return { minFt: NaN, maxFt: NaN };
-  const altitudeArrays = [];
-  if (DIVERSION_LRC_TABLE.low?.fuelTime?.altitudeAxisFt) {
-    altitudeArrays.push(DIVERSION_LRC_TABLE.low.fuelTime.altitudeAxisFt);
+function getDiversionBandTable(bandKey) {
+  if (!DIVERSION_LRC_TABLE) return null;
+  if (DIVERSION_LRC_TABLE.low?.groundToAir && DIVERSION_LRC_TABLE.high?.groundToAir) {
+    if (bandKey === "low") return DIVERSION_LRC_TABLE.low;
+    if (bandKey === "high") return DIVERSION_LRC_TABLE.high;
+    return null;
   }
-  if (DIVERSION_LRC_TABLE.high?.fuelTime?.altitudeAxisFt) {
-    altitudeArrays.push(DIVERSION_LRC_TABLE.high.fuelTime.altitudeAxisFt);
-  }
-  if (DIVERSION_LRC_TABLE.fuelTime?.altitudeAxisFt) {
-    altitudeArrays.push(DIVERSION_LRC_TABLE.fuelTime.altitudeAxisFt);
-  }
-  if (altitudeArrays.length === 0) return { minFt: NaN, maxFt: NaN };
+  return DIVERSION_LRC_TABLE;
+}
 
-  const mins = altitudeArrays.map((a) => a[0]).filter(Number.isFinite);
-  const maxs = altitudeArrays.map((a) => a[a.length - 1]).filter(Number.isFinite);
-  if (mins.length === 0 || maxs.length === 0) return { minFt: NaN, maxFt: NaN };
+function getDiversionBandRanges(bandKey) {
+  const tableSet = getDiversionBandTable(bandKey);
+  if (!tableSet) {
+    return {
+      minGnm: NaN,
+      maxGnm: NaN,
+      minWindKt: NaN,
+      maxWindKt: NaN,
+      minAltitudeFt: NaN,
+      maxAltitudeFt: NaN,
+      minWeightT: NaN,
+      maxWeightT: NaN,
+    };
+  }
+
+  const gnmAxis = tableSet.groundToAir?.gnmAxis || [];
+  const windAxis = tableSet.groundToAir?.windAxis || [];
+  const altitudeAxis = tableSet.fuelTime?.altitudeAxisFt || [];
+  const weightAxis = tableSet.fuelAdjustment?.weightAxisT || [];
+
   return {
-    minFt: Math.min(...mins),
-    maxFt: Math.max(...maxs),
+    minGnm: gnmAxis[0],
+    maxGnm: gnmAxis[gnmAxis.length - 1],
+    minWindKt: windAxis[0],
+    maxWindKt: windAxis[windAxis.length - 1],
+    minAltitudeFt: altitudeAxis[0],
+    maxAltitudeFt: altitudeAxis[altitudeAxis.length - 1],
+    minWeightT: weightAxis[0],
+    maxWeightT: weightAxis[weightAxis.length - 1],
   };
 }
 
@@ -1332,8 +1352,9 @@ function calculateTripFuel(gnm, wind, weight, perfAdjust, additionalHoldingMin) 
   };
 }
 
-function diversionLrcFuel(gnm, wind, altitudeFt, weightT, perfAdjust, additionalHoldingMin) {
-  if (!DIVERSION_LRC_TABLE) {
+function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdjust, additionalHoldingMin) {
+  const tableSet = getDiversionBandTable(bandKey);
+  if (!tableSet) {
     throw new Error("Diversion LRC table is missing");
   }
   if (!Number.isFinite(gnm) || !Number.isFinite(wind) || !Number.isFinite(altitudeFt) || !Number.isFinite(weightT)) {
@@ -1343,101 +1364,47 @@ function diversionLrcFuel(gnm, wind, altitudeFt, weightT, perfAdjust, additional
     throw new Error("Global flight plan performance adjustment is invalid");
   }
 
-  const hasBands = DIVERSION_LRC_TABLE.low && DIVERSION_LRC_TABLE.high;
-  const baseBand = hasBands ? DIVERSION_LRC_TABLE.low : DIVERSION_LRC_TABLE;
-  const gnmAxis = baseBand.groundToAir.gnmAxis;
-  const windAxis = baseBand.groundToAir.windAxis;
+  const gnmAxis = tableSet.groundToAir.gnmAxis;
+  const windAxis = tableSet.groundToAir.windAxis;
+  const altitudeAxisFt = tableSet.fuelTime.altitudeAxisFt;
+  const weightAxis = tableSet.fuelAdjustment.weightAxisT;
+
   const gnmUsed = clampToAxis(gnmAxis, gnm);
   const windUsed = clampToAxis(windAxis, wind);
-  const weightAxis = baseBand.fuelAdjustment.weightAxisT;
+  const altitudeUsed = clampToAxis(altitudeAxisFt, altitudeFt);
   const weightUsed = clampToAxis(weightAxis, weightT);
-  const altitudeMinFt = hasBands
-    ? Math.min(
-        DIVERSION_LRC_TABLE.low.fuelTime.altitudeAxisFt[0],
-        DIVERSION_LRC_TABLE.high.fuelTime.altitudeAxisFt[0],
-      )
-    : baseBand.fuelTime.altitudeAxisFt[0];
-  const altitudeMaxFt = hasBands
-    ? Math.max(
-        DIVERSION_LRC_TABLE.low.fuelTime.altitudeAxisFt[DIVERSION_LRC_TABLE.low.fuelTime.altitudeAxisFt.length - 1],
-        DIVERSION_LRC_TABLE.high.fuelTime.altitudeAxisFt[DIVERSION_LRC_TABLE.high.fuelTime.altitudeAxisFt.length - 1],
-      )
-    : baseBand.fuelTime.altitudeAxisFt[baseBand.fuelTime.altitudeAxisFt.length - 1];
-  const altitudeUsed = clamp(altitudeFt, altitudeMinFt, altitudeMaxFt);
+
   const warnings = [];
   if (gnmUsed !== gnm) warnings.push(`Ground distance clamped to ${format(gnmUsed, 0)} NM`);
   if (windUsed !== wind) warnings.push(`Wind clamped to ${format(windUsed, 0)} kt`);
   if (altitudeUsed !== altitudeFt) warnings.push(`Altitude clamped to ${format(altitudeUsed, 0)} ft`);
   if (weightUsed !== weightT) warnings.push(`Start weight clamped to ${format(weightUsed, 1)} t`);
 
-  const evaluateBand = (tableSet) => {
-    const anm = Math.abs(windUsed) < 1e-9
-      ? gnmUsed
-      : bilinearClamped(
-          tableSet.groundToAir.gnmAxis,
-          tableSet.groundToAir.windAxis,
-          tableSet.groundToAir.values,
-          gnmUsed,
-          windUsed,
-        );
+  const anm = Math.abs(windUsed) < 1e-9
+    ? gnmUsed
+    : bilinearClamped(gnmAxis, windAxis, tableSet.groundToAir.values, gnmUsed, windUsed);
 
-    const referenceFuel1000Kg = bilinearClamped(
-      tableSet.fuelTime.anmAxis,
-      tableSet.fuelTime.altitudeAxisFt,
-      tableSet.fuelTime.fuel1000KgValues,
-      anm,
-      altitudeUsed,
-    );
-    const timeMinutes = bilinearClamped(
-      tableSet.fuelTime.anmAxis,
-      tableSet.fuelTime.altitudeAxisFt,
-      tableSet.fuelTime.timeMinutesValues,
-      anm,
-      altitudeUsed,
-    );
-    const adjustment1000Kg = bilinearClamped(
-      tableSet.fuelAdjustment.referenceFuelAxis1000Kg,
-      tableSet.fuelAdjustment.weightAxisT,
-      tableSet.fuelAdjustment.adjustment1000KgValues,
-      referenceFuel1000Kg,
-      weightUsed,
-    );
-
-    return {
-      anm,
-      referenceFuel1000Kg,
-      timeMinutes,
-      adjustment1000Kg,
-    };
-  };
-
-  let anm;
-  let referenceFuel1000Kg;
-  let timeMinutes;
-  let adjustment1000Kg;
-
-  if (!hasBands) {
-    ({ anm, referenceFuel1000Kg, timeMinutes, adjustment1000Kg } = evaluateBand(DIVERSION_LRC_TABLE));
-  } else {
-    const lowBand = DIVERSION_LRC_TABLE.low;
-    const highBand = DIVERSION_LRC_TABLE.high;
-    const lowTopFt = lowBand.fuelTime.altitudeAxisFt[lowBand.fuelTime.altitudeAxisFt.length - 1];
-    const highBottomFt = highBand.fuelTime.altitudeAxisFt[0];
-
-    if (altitudeFt <= lowTopFt) {
-      ({ anm, referenceFuel1000Kg, timeMinutes, adjustment1000Kg } = evaluateBand(lowBand));
-    } else if (altitudeFt >= highBottomFt) {
-      ({ anm, referenceFuel1000Kg, timeMinutes, adjustment1000Kg } = evaluateBand(highBand));
-    } else {
-      const lowEval = evaluateBand(lowBand);
-      const highEval = evaluateBand(highBand);
-      const alpha = (altitudeFt - lowTopFt) / (highBottomFt - lowTopFt);
-      anm = lowEval.anm + (highEval.anm - lowEval.anm) * alpha;
-      referenceFuel1000Kg = lowEval.referenceFuel1000Kg + (highEval.referenceFuel1000Kg - lowEval.referenceFuel1000Kg) * alpha;
-      timeMinutes = lowEval.timeMinutes + (highEval.timeMinutes - lowEval.timeMinutes) * alpha;
-      adjustment1000Kg = lowEval.adjustment1000Kg + (highEval.adjustment1000Kg - lowEval.adjustment1000Kg) * alpha;
-    }
-  }
+  const referenceFuel1000Kg = bilinearClamped(
+    tableSet.fuelTime.anmAxis,
+    tableSet.fuelTime.altitudeAxisFt,
+    tableSet.fuelTime.fuel1000KgValues,
+    anm,
+    altitudeUsed,
+  );
+  const timeMinutes = bilinearClamped(
+    tableSet.fuelTime.anmAxis,
+    tableSet.fuelTime.altitudeAxisFt,
+    tableSet.fuelTime.timeMinutesValues,
+    anm,
+    altitudeUsed,
+  );
+  const adjustment1000Kg = bilinearClamped(
+    tableSet.fuelAdjustment.referenceFuelAxis1000Kg,
+    tableSet.fuelAdjustment.weightAxisT,
+    tableSet.fuelAdjustment.adjustment1000KgValues,
+    referenceFuel1000Kg,
+    weightUsed,
+  );
 
   const adjustedFuelBeforePerf1000Kg = referenceFuel1000Kg + adjustment1000Kg;
   const adjustedFuel1000Kg = adjustedFuelBeforePerf1000Kg * (1 + perfAdjust);
@@ -2661,6 +2628,57 @@ function installClickToClearInputs() {
   );
 }
 
+function installCollapsiblePanels() {
+  const collapseState = (() => {
+    try {
+      const raw = localStorage.getItem(PANEL_COLLAPSE_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  })();
+
+  const persistCollapseState = () => {
+    try {
+      localStorage.setItem(PANEL_COLLAPSE_STORAGE_KEY, JSON.stringify(collapseState));
+    } catch {
+      // Ignore storage failures.
+    }
+  };
+
+  const updatePanelState = (panel, toggle, panelId, open) => {
+    panel.classList.toggle("panel-collapsed", !open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    toggle.setAttribute("aria-label", open ? "Collapse module" : "Expand module");
+    toggle.textContent = open ? "−" : "+";
+    collapseState[panelId] = open;
+  };
+
+  Array.from(document.querySelectorAll("section.panel")).forEach((panel, index) => {
+    const heading = panel.querySelector(":scope > h2");
+    if (!heading) return;
+    if (heading.querySelector(".panel-toggle")) return;
+
+    const panelId = panel.id || heading.id || `module-${index + 1}`;
+    const isOpen = panelId in collapseState ? !!collapseState[panelId] : true;
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "panel-toggle";
+
+    updatePanelState(panel, toggle, panelId, isOpen);
+    toggle.addEventListener("click", () => {
+      const nextOpen = panel.classList.contains("panel-collapsed");
+      updatePanelState(panel, toggle, panelId, nextOpen);
+      persistCollapseState();
+    });
+
+    heading.appendChild(toggle);
+  });
+}
+
 function bindTripFuel() {
   const form = document.querySelector("#trip-fuel-form");
   const out = document.querySelector("#trip-fuel-out");
@@ -3094,38 +3112,45 @@ function bindEngineOut() {
   }
 }
 
-function bindDiversion() {
-  const form = document.querySelector("#diversion-form");
-  const out = document.querySelector("#diversion-out");
+function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, altLabel }) {
+  const form = document.querySelector(formSelector);
+  const out = document.querySelector(outSelector);
   if (!form || !out) return;
+
+  const gnmEl = document.querySelector(fieldIds.gnm);
+  const windEl = document.querySelector(fieldIds.wind);
+  const altEl = document.querySelector(fieldIds.alt);
+  const weightEl = document.querySelector(fieldIds.weight);
+  const holdMinEl = document.querySelector(fieldIds.holdMin);
+  if (!gnmEl || !windEl || !altEl || !weightEl || !holdMinEl) return;
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     if (
       missingFieldsBanner(out, [
-        fieldIsBlank(document.querySelector("#div-gnm").value) ? "Ground Distance (GNM)" : "",
-        fieldIsBlank(document.querySelector("#div-wind").value) ? "Wind +/-" : "",
-        fieldIsBlank(document.querySelector("#div-alt").value) ? "Alt/FL" : "",
-        fieldIsBlank(document.querySelector("#div-weight").value) ? "Start Weight" : "",
-        fieldIsBlank(document.querySelector("#div-hold-min").value) ? "Additional Holding Fuel (min)" : "",
+        fieldIsBlank(gnmEl.value) ? "Ground Distance (GNM)" : "",
+        fieldIsBlank(windEl.value) ? "Wind +/-" : "",
+        fieldIsBlank(altEl.value) ? "Alt/FL" : "",
+        fieldIsBlank(weightEl.value) ? "Start Weight" : "",
+        fieldIsBlank(holdMinEl.value) ? "Additional Holding Fuel (min)" : "",
       ])
     ) {
       return;
     }
     try {
-      const gnm = parseNum(document.querySelector("#div-gnm").value);
-      const wind = parseNum(document.querySelector("#div-wind").value);
-      const divAltEl = document.querySelector("#div-alt");
-      const divAltInput = parseAltOrFlInput(divAltEl.value, "Diversion Alt/FL");
-      const altitudeFt = divAltInput.altitudeFt;
-      const weightT = parseNum(document.querySelector("#div-weight").value);
-      const holdingMin = parseNum(document.querySelector("#div-hold-min").value);
+      const gnm = parseNum(gnmEl.value);
+      const wind = parseNum(windEl.value);
+      const altInput = parseAltOrFlInput(altEl.value, altLabel);
+      const weightT = parseNum(weightEl.value);
+      const holdingMin = parseNum(holdMinEl.value);
       const perfAdjust = getGlobalPerfAdjust();
-      if (divAltInput.isThreeDigitFl) {
-        divAltEl.value = formatInputNumber(altitudeFt, 0);
-      }
+      const result = diversionLrcFuelByBand(bandKey, gnm, wind, altInput.altitudeFt, weightT, perfAdjust, holdingMin);
 
-      const result = diversionLrcFuel(gnm, wind, altitudeFt, weightT, perfAdjust, holdingMin);
+      gnmEl.value = formatInputNumber(result.usedInputs.gnm, 0);
+      windEl.value = formatInputNumber(result.usedInputs.wind, 0);
+      altEl.value = formatInputNumber(result.usedInputs.altitudeFt, 0);
+      weightEl.value = formatInputNumber(result.usedInputs.weightT, 1);
+
       const rows = [
         ...(result.warnings.length ? [["__warning__", `Input warning: ${result.warnings.join(" | ")}`]] : []),
         ["Flight Fuel", `${format(result.adjustedFuel1000Kg * 1000, 0)} kg`],
@@ -3144,6 +3169,35 @@ function bindDiversion() {
   });
 
   form.dispatchEvent(new Event("submit"));
+}
+
+function bindDiversion() {
+  bindDiversionModule({
+    bandKey: "low",
+    formSelector: "#diversion-low-form",
+    outSelector: "#diversion-low-out",
+    fieldIds: {
+      gnm: "#div-low-gnm",
+      wind: "#div-low-wind",
+      alt: "#div-low-alt",
+      weight: "#div-low-weight",
+      holdMin: "#div-low-hold-min",
+    },
+    altLabel: "Diversion Low Alt/FL",
+  });
+  bindDiversionModule({
+    bandKey: "high",
+    formSelector: "#diversion-high-form",
+    outSelector: "#diversion-high-out",
+    fieldIds: {
+      gnm: "#div-high-gnm",
+      wind: "#div-high-wind",
+      alt: "#div-high-alt",
+      weight: "#div-high-weight",
+      holdMin: "#div-high-hold-min",
+    },
+    altLabel: "Diversion High Alt/FL",
+  });
 }
 
 function bindHolding() {
@@ -3768,7 +3822,8 @@ function bindGlobalSettings() {
       "#lrc-altitude-form",
       "#engine-out-drift-form",
       "#engine-out-diversion-form",
-      "#diversion-form",
+      "#diversion-low-form",
+      "#diversion-high-form",
       "#holding-form",
       "#lose-time-form",
     ].forEach((selector) => {
@@ -3798,10 +3853,23 @@ function setAltFlRangeLabels() {
     setRangeText("#hold-alt-range", formatFlRange(minFl, maxFl));
   }
 
-  const diversionRange = getDiversionAltitudeRangeFt();
-  if (Number.isFinite(diversionRange.minFt) && Number.isFinite(diversionRange.maxFt)) {
-    setRangeText("#div-alt-range", formatFlRange(diversionRange.minFt / 100, diversionRange.maxFt / 100));
-  }
+  const formatDiversionLimits = (ranges) => {
+    if (
+      !Number.isFinite(ranges.minGnm) ||
+      !Number.isFinite(ranges.maxGnm) ||
+      !Number.isFinite(ranges.minWindKt) ||
+      !Number.isFinite(ranges.maxWindKt) ||
+      !Number.isFinite(ranges.minAltitudeFt) ||
+      !Number.isFinite(ranges.maxAltitudeFt) ||
+      !Number.isFinite(ranges.minWeightT) ||
+      !Number.isFinite(ranges.maxWeightT)
+    ) {
+      return "";
+    }
+    return `Limits: GNM ${format(ranges.minGnm, 0)}-${format(ranges.maxGnm, 0)} | Wind ${format(ranges.minWindKt, 0)} to +${format(ranges.maxWindKt, 0)} kt | Alt ${format(ranges.minAltitudeFt, 0)}-${format(ranges.maxAltitudeFt, 0)} ft (FL${format(ranges.minAltitudeFt / 100, 0)}-${format(ranges.maxAltitudeFt / 100, 0)}) | Weight ${format(ranges.minWeightT, 1)}-${format(ranges.maxWeightT, 1)} t`;
+  };
+  setRangeText("#div-low-limits", formatDiversionLimits(getDiversionBandRanges("low")));
+  setRangeText("#div-high-limits", formatDiversionLimits(getDiversionBandRanges("high")));
 
   const { minFl, maxFl } = getLrcTableFlRange();
   const lrcRangeText = formatFlRange(minFl, maxFl);
@@ -3895,6 +3963,7 @@ function setAppVersionLabel() {
 
 setAppVersionLabel();
 setAltFlRangeLabels();
+installCollapsiblePanels();
 restorePersistedInputState();
 installInputStatePersistence();
 installClickToClearInputs();

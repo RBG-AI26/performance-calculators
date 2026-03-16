@@ -135,33 +135,64 @@
         <div id="engine-out-diversion-out" class="results"></div>
       </section>
 
-      <section class="panel" aria-labelledby="diversion-heading">
-        <h2 id="diversion-heading">Diversion (LRC)</h2>
+      <section class="panel" aria-labelledby="diversion-low-heading">
+        <h2 id="diversion-low-heading">Diversion (LRC Low)</h2>
         <p class="module-note">LRC - Descent .85/310/250</p>
-        <form id="diversion-form" class="grid">
+        <p class="module-note module-limits" id="div-low-limits"></p>
+        <form id="diversion-low-form" class="grid">
           <label>
             Ground Distance (GNM)
-            <input type="number" step="1" id="div-gnm" value="500" />
+            <input type="number" step="1" id="div-low-gnm" value="500" />
           </label>
           <label>
             Wind +/-
-            <input type="number" step="1" id="div-wind" value="0" />
+            <input type="number" step="1" id="div-low-wind" value="0" />
           </label>
           <label>
-            Alt/FL <span class="label-note" id="div-alt-range"></span>
-            <input type="number" step="100" id="div-alt" value="20000" />
+            Alt/FL
+            <input type="number" step="100" id="div-low-alt" value="20000" />
           </label>
           <label>
             Start Weight (t)
-            <input type="number" step="0.1" id="div-weight" value="180" />
+            <input type="number" step="0.1" id="div-low-weight" value="180" />
           </label>
           <label>
             Additional Holding Fuel (min)
-            <input type="number" step="1" id="div-hold-min" value="0" />
+            <input type="number" step="1" id="div-low-hold-min" value="0" />
           </label>
           <button type="submit">Calculate</button>
         </form>
-        <div id="diversion-out" class="results"></div>
+        <div id="diversion-low-out" class="results"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="diversion-high-heading">
+        <h2 id="diversion-high-heading">Diversion (LRC High)</h2>
+        <p class="module-note">LRC - Descent .85/310/250</p>
+        <p class="module-note module-limits" id="div-high-limits"></p>
+        <form id="diversion-high-form" class="grid">
+          <label>
+            Ground Distance (GNM)
+            <input type="number" step="1" id="div-high-gnm" value="1200" />
+          </label>
+          <label>
+            Wind +/-
+            <input type="number" step="1" id="div-high-wind" value="0" />
+          </label>
+          <label>
+            Alt/FL
+            <input type="number" step="100" id="div-high-alt" value="35000" />
+          </label>
+          <label>
+            Start Weight (t)
+            <input type="number" step="0.1" id="div-high-weight" value="180" />
+          </label>
+          <label>
+            Additional Holding Fuel (min)
+            <input type="number" step="1" id="div-high-hold-min" value="0" />
+          </label>
+          <button type="submit">Calculate</button>
+        </form>
+        <div id="diversion-high-out" class="results"></div>
       </section>
 
       <section class="panel" aria-labelledby="go-around-heading">
