@@ -3853,7 +3853,6 @@ function bindCogLimit() {
 
       const rows = [
         ...(result.warnings.length ? [["__warning__", `Input warning: ${result.warnings.join(" | ")}`]] : []),
-        ["Gross Weight (used)", `${format(result.usedWeight1000Kg, 1)} (1000 kg)`],
         ["CG Limit", `${format(result.cgLimitPctMac, 1)} %MAC`],
       ];
       renderRows(out, rows);
