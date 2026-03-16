@@ -3646,7 +3646,7 @@ function bindLoseTime() {
         ["Option A Fuel Burn", `${format(comparison.optionA.fuelBurnKg, 0)} kg`],
         ["Option A Delay Achieved", `${format(comparison.optionA.totalTimeMin - comparison.baseline.timeToFixMin, 2)} min`],
         ["__spacer__", ""],
-        ["Option B Time (Enroute Hold-Speed)", formatMinutes(comparison.optionB.totalTimeMin)],
+        ["Option B Time (Reduce to Hold Speed enroute)", formatMinutes(comparison.optionB.totalTimeMin)],
         ["Option B Fuel Burn", `${format(comparison.optionB.fuelBurnKg, 0)} kg`],
         ["Option B Delay Achieved", `${format(comparison.optionB.totalTimeMin - comparison.baseline.timeToFixMin, 2)} min`],
         ["Option B Speed Reduction Start", switchText],
