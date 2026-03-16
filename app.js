@@ -2716,7 +2716,6 @@ function bindTripFuel() {
       missingFieldsBanner(out, [
         fieldIsBlank(document.querySelector("#trip-gnm").value) ? "Ground Distance (GNM)" : "",
         fieldIsBlank(document.querySelector("#trip-weight").value) ? "Landing Weight" : "",
-        fieldIsBlank(document.querySelector("#trip-hold-min").value) ? "Additional Holding Fuel (min)" : "",
       ])
     ) {
       return;
@@ -2726,7 +2725,8 @@ function bindTripFuel() {
       const wind = parseNumOrDefault(windEl?.value, 0);
       const weight = parseNum(document.querySelector("#trip-weight").value);
       const perfAdjust = getGlobalPerfAdjust();
-      const holdingMin = parseNum(document.querySelector("#trip-hold-min").value);
+      const holdingMinEl = document.querySelector("#trip-hold-min");
+      const holdingMin = parseNumOrDefault(holdingMinEl?.value, 0);
       const arrivalAllowanceMin = parseNumOrDefault(arrivalAllowanceEl?.value, 0);
       const result = calculateTripFuel(gnm, wind, weight, perfAdjust, holdingMin, arrivalAllowanceMin);
 
@@ -2735,6 +2735,9 @@ function bindTripFuel() {
       }
       if (arrivalAllowanceEl && fieldIsBlank(arrivalAllowanceEl.value)) {
         arrivalAllowanceEl.value = formatInputNumber(0, 0);
+      }
+      if (holdingMinEl && fieldIsBlank(holdingMinEl.value)) {
+        holdingMinEl.value = formatInputNumber(0, 0);
       }
 
       const rows = [
@@ -3160,7 +3163,6 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
         fieldIsBlank(gnmEl.value) ? "Ground Distance (GNM)" : "",
         fieldIsBlank(altEl.value) ? "Alt/FL" : "",
         fieldIsBlank(weightEl.value) ? "Start Weight" : "",
-        fieldIsBlank(holdMinEl.value) ? "Additional Holding Fuel (min)" : "",
       ])
     ) {
       return;
@@ -3170,7 +3172,7 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
       const wind = parseNumOrDefault(windEl.value, 0);
       const altInput = parseAltOrFlInput(altEl.value, altLabel);
       const weightT = parseNum(weightEl.value);
-      const holdingMin = parseNum(holdMinEl.value);
+      const holdingMin = parseNumOrDefault(holdMinEl.value, 0);
       const arrivalAllowanceMin = parseNumOrDefault(arrivalAllowanceEl.value, 0);
       const perfAdjust = getGlobalPerfAdjust();
       const result = diversionLrcFuelByBand(
@@ -3188,6 +3190,9 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
       windEl.value = formatInputNumber(result.usedInputs.wind, 0);
       altEl.value = formatInputNumber(result.usedInputs.altitudeFt, 0);
       weightEl.value = formatInputNumber(result.usedInputs.weightT, 1);
+      if (fieldIsBlank(holdMinEl.value)) {
+        holdMinEl.value = formatInputNumber(0, 0);
+      }
       if (fieldIsBlank(arrivalAllowanceEl.value)) {
         arrivalAllowanceEl.value = formatInputNumber(0, 0);
       }
