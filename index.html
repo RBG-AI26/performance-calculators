@@ -66,7 +66,7 @@
       <section class="panel" aria-labelledby="dpa-heading">
         <h2 id="dpa-heading">DPA Calculator</h2>
         <p class="module-note">Enter fuel directly in kg or switch selected rows to minutes.</p>
-        <p class="dpa-assumptions">1500 ft basis: Arrival, Holding - SNG RWY, FRF. 20000 ft basis: Holding - Wx, Holding - Other, Divn/NDA, Diversion Hold, Req Additional.</p>
+        <p class="dpa-assumptions">1500 ft basis: Holding - SNG RWY, FRF. 20000 ft basis: Holding - Wx, Holding - Other, Divn/NDA, Diversion Hold, Req Additional.</p>
         <form id="dpa-form" class="dpa-form">
           <div class="dpa-core-inputs">
             <label>
@@ -81,20 +81,12 @@
               App
               <input type="number" step="1" min="0" id="dpa-app" value="0" />
             </label>
+            <label>
+              Arrival
+              <input type="number" step="1" min="0" id="dpa-arrival" value="0" />
+            </label>
           </div>
           <div class="dpa-entry-list">
-            <div class="dpa-entry-row">
-              <label class="dpa-entry-label" for="dpa-arrival">Arrival</label>
-              <select id="dpa-arrival-mode" class="sr-only">
-                <option value="kg" selected>kg</option>
-                <option value="min">min</option>
-              </select>
-              <div class="dpa-mode-pills" data-mode-for="dpa-arrival-mode">
-                <button type="button" data-mode-value="kg">kg</button>
-                <button type="button" data-mode-value="min">min</button>
-              </div>
-              <input type="number" step="1" min="0" id="dpa-arrival" value="0" />
-            </div>
             <div class="dpa-entry-row">
               <label class="dpa-entry-label" for="dpa-holding-wx">Holding - Wx</label>
               <select id="dpa-holding-wx-mode" class="sr-only">

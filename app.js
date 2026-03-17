@@ -2808,7 +2808,6 @@ function bindDpaCalculator() {
   const weightEl = document.querySelector("#dpa-weight");
   const ffEl = document.querySelector("#dpa-ff");
   const appEl = document.querySelector("#dpa-app");
-  const arrivalModeEl = document.querySelector("#dpa-arrival-mode");
   const arrivalEl = document.querySelector("#dpa-arrival");
   const holdingWxModeEl = document.querySelector("#dpa-holding-wx-mode");
   const holdingWxEl = document.querySelector("#dpa-holding-wx");
@@ -2829,7 +2828,6 @@ function bindDpaCalculator() {
     !weightEl ||
     !ffEl ||
     !appEl ||
-    !arrivalModeEl ||
     !arrivalEl ||
     !holdingWxModeEl ||
     !holdingWxEl ||
@@ -2925,7 +2923,6 @@ function bindDpaCalculator() {
   };
 
   const modeEls = [
-    arrivalModeEl,
     holdingWxModeEl,
     holdingSngRwyModeEl,
     holdingOtherModeEl,
@@ -2947,7 +2944,6 @@ function bindDpaCalculator() {
     event.preventDefault();
 
     const weightRequired =
-      String(arrivalModeEl.value) === "min" ||
       String(holdingWxModeEl.value) === "min" ||
       String(holdingSngRwyModeEl.value) === "min" ||
       String(holdingOtherModeEl.value) === "min" ||
@@ -2984,12 +2980,7 @@ function bindDpaCalculator() {
         weightEl.value = formatInputNumber(weightT, 1);
       }
 
-      const arrivalKg = resolveMixedEntryKg({
-        label: "Arrival",
-        modeEl: arrivalModeEl,
-        valueEl: arrivalEl,
-        minuteFuelFlowKgHr: frfFuelFlowKgHr,
-      });
+      const arrivalKg = resolveKgInput("Arrival", arrivalEl);
       const holdingWxKg = resolveMixedEntryKg({
         label: "Holding - Wx",
         modeEl: holdingWxModeEl,
