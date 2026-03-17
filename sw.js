@@ -1,4 +1,4 @@
-const CACHE_NAME = "performance-calculators-v15";
+const CACHE_NAME = "performance-calculators-v16";
 const APP_SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -13,8 +13,8 @@ const APP_SHELL_ASSETS = [
   "./diversion_data.js",
   "./go_around_data.js",
   "./manifest.webmanifest",
-  "./icons/icon-180.png",
-  "./icons/icon-192.png",
+  "./apple-touch-icon.png",
+  "./favicon-192.png",
   "./icons/icon-512.png",
 ];
 const APP_SHELL_PATHS = new Set(APP_SHELL_ASSETS.map((asset) => new URL(asset, self.location.href).pathname));
