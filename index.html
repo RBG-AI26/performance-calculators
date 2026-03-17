@@ -66,7 +66,7 @@
       <section class="panel" aria-labelledby="dpa-heading">
         <h2 id="dpa-heading">DPA Calculator</h2>
         <p class="module-note">Enter fuel directly in kg or switch selected rows to minutes.</p>
-        <p class="dpa-assumptions">1500 ft basis: SNG RWY Hold, Divn/NDA, FRF. 20000 ft basis: Wx Hold, Other Hold, Div Hold, Req Addl.</p>
+        <p class="dpa-assumptions">1500 ft basis: SNG RWY Hold, Divn/NDA, FRF. 20000 ft basis: Wx Hold, Div Hold, Rqd Additional/Other Hold.</p>
         <form id="dpa-form" class="dpa-form">
           <div class="dpa-core-inputs">
             <label>
@@ -112,18 +112,6 @@
               <input type="number" step="1" min="0" id="dpa-holding-sng-rwy" value="0" />
             </div>
             <div class="dpa-entry-row">
-              <label class="dpa-entry-label" for="dpa-holding-other">Other Hold</label>
-              <select id="dpa-holding-other-mode" class="sr-only">
-                <option value="kg" selected>kg</option>
-                <option value="min">min</option>
-              </select>
-              <div class="dpa-mode-pills" data-mode-for="dpa-holding-other-mode">
-                <button type="button" data-mode-value="kg">kg</button>
-                <button type="button" data-mode-value="min">min</button>
-              </div>
-              <input type="number" step="1" min="0" id="dpa-holding-other" value="0" />
-            </div>
-            <div class="dpa-entry-row">
               <label class="dpa-entry-label" for="dpa-divn-nda">Divn/NDA</label>
               <select id="dpa-divn-nda-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
@@ -165,7 +153,7 @@
               <input type="number" step="1" min="0" id="dpa-frf" value="" placeholder="Auto" />
             </div>
             <div class="dpa-entry-row">
-              <label class="dpa-entry-label" for="dpa-req-additional">Req Addl</label>
+              <label class="dpa-entry-label" for="dpa-req-additional">Rqd Additional/Other Hold</label>
               <select id="dpa-req-additional-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>

@@ -2813,8 +2813,6 @@ function bindDpaCalculator() {
   const holdingWxEl = document.querySelector("#dpa-holding-wx");
   const holdingSngRwyModeEl = document.querySelector("#dpa-holding-sng-rwy-mode");
   const holdingSngRwyEl = document.querySelector("#dpa-holding-sng-rwy");
-  const holdingOtherModeEl = document.querySelector("#dpa-holding-other-mode");
-  const holdingOtherEl = document.querySelector("#dpa-holding-other");
   const divnNdaModeEl = document.querySelector("#dpa-divn-nda-mode");
   const divnNdaEl = document.querySelector("#dpa-divn-nda");
   const diversionHoldModeEl = document.querySelector("#dpa-diversion-hold-mode");
@@ -2833,8 +2831,6 @@ function bindDpaCalculator() {
     !holdingWxEl ||
     !holdingSngRwyModeEl ||
     !holdingSngRwyEl ||
-    !holdingOtherModeEl ||
-    !holdingOtherEl ||
     !divnNdaModeEl ||
     !divnNdaEl ||
     !diversionHoldModeEl ||
@@ -2925,7 +2921,6 @@ function bindDpaCalculator() {
   const modeEls = [
     holdingWxModeEl,
     holdingSngRwyModeEl,
-    holdingOtherModeEl,
     divnNdaModeEl,
     diversionHoldModeEl,
     frfModeEl,
@@ -2946,7 +2941,6 @@ function bindDpaCalculator() {
     const weightRequired =
       String(holdingWxModeEl.value) === "min" ||
       String(holdingSngRwyModeEl.value) === "min" ||
-      String(holdingOtherModeEl.value) === "min" ||
       String(divnNdaModeEl.value) === "min" ||
       String(diversionHoldModeEl.value) === "min" ||
       String(frfModeEl.value) === "auto" ||
@@ -2993,12 +2987,6 @@ function bindDpaCalculator() {
         valueEl: holdingSngRwyEl,
         minuteFuelFlowKgHr: frfFuelFlowKgHr,
       });
-      const holdingOtherKg = resolveMixedEntryKg({
-        label: "Other Hold",
-        modeEl: holdingOtherModeEl,
-        valueEl: holdingOtherEl,
-        minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
-      });
       const divnNdaKg = resolveMixedEntryKg({
         label: "Divn/NDA",
         modeEl: divnNdaModeEl,
@@ -3020,7 +3008,7 @@ function bindDpaCalculator() {
         autoKg: frfAutoKg,
       });
       const reqAdditionalKg = resolveMixedEntryKg({
-        label: "Req Addl",
+        label: "Rqd Additional/Other Hold",
         modeEl: reqAdditionalModeEl,
         valueEl: reqAdditionalEl,
         minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
@@ -3032,12 +3020,11 @@ function bindDpaCalculator() {
         ["Arrival", `${format(arrivalKg, 0)} kg`],
         ["Wx Hold", `${format(holdingWxKg, 0)} kg`],
         ["SNG RWY Hold", `${format(holdingSngRwyKg, 0)} kg`],
-        ["Other Hold", `${format(holdingOtherKg, 0)} kg`],
         ["Divn/NDA", `${format(divnNdaKg, 0)} kg`],
         ["Div Hold", `${format(diversionHoldKg, 0)} kg`],
         ["Cont", `${format(contKg, 0)} kg`],
         ["FRF", `${format(frfKg, 0)} kg`],
-        ["Req Addl", `${format(reqAdditionalKg, 0)} kg`],
+        ["Rqd Additional/Other Hold", `${format(reqAdditionalKg, 0)} kg`],
         [
           "DPA Total",
           `${format(
@@ -3046,7 +3033,6 @@ function bindDpaCalculator() {
               arrivalKg +
               holdingWxKg +
               holdingSngRwyKg +
-              holdingOtherKg +
               divnNdaKg +
               diversionHoldKg +
               contKg +
