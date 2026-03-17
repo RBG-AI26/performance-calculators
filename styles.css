@@ -130,6 +130,12 @@ label {
   color: #1d3f59;
 }
 
+.mode-input-grid {
+  display: grid;
+  grid-template-columns: minmax(84px, 96px) minmax(0, 1fr);
+  gap: 0.45rem;
+}
+
 .label-note {
   font-size: 0.78rem;
   font-weight: 500;
@@ -159,6 +165,13 @@ input:focus,
 select:focus {
   outline: 2px solid rgba(0, 92, 153, 0.2);
   border-color: #0f77b7;
+}
+
+input:disabled,
+select:disabled {
+  background: #eef4f9;
+  color: #6d7f90;
+  cursor: not-allowed;
 }
 
 button {

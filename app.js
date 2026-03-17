@@ -2510,7 +2510,8 @@ function renderRows(target, rows) {
       if (k === "__warning__") {
         return `<div class="result-warning">${v}</div>`;
       }
-      const rowClass = k === "Inbound Leg Time" ? "result-row result-row-emphasis" : "result-row";
+      const emphasizedRows = new Set(["Inbound Leg Time", "DPA Total"]);
+      const rowClass = emphasizedRows.has(k) ? "result-row result-row-emphasis" : "result-row";
       return `<div class="${rowClass}"><span class="result-key">${k}</span><span class="result-value">${v}</span></div>`;
     })
     .join("");
@@ -2804,44 +2805,229 @@ function bindDpaCalculator() {
   const out = document.querySelector("#dpa-out");
   if (!form || !out) return;
 
-  const inputDefs = [
-    { id: "#dpa-ff", label: "FF" },
-    { id: "#dpa-app", label: "App" },
-    { id: "#dpa-arrival", label: "Arrival" },
-    { id: "#dpa-holding-wx", label: "Holding - Wx" },
-    { id: "#dpa-holding-sng-rwy", label: "Holding - SNG RWY" },
-    { id: "#dpa-holding-other", label: "Holding - Other" },
-    { id: "#dpa-divn-nda", label: "Divn/NDA" },
-    { id: "#dpa-diversion-hold", label: "Diversion Hold" },
-    { id: "#dpa-cont", label: "Cont" },
-    { id: "#dpa-frf", label: "FRF" },
-    { id: "#dpa-req-additional", label: "Req Additional" },
-  ];
+  const weightEl = document.querySelector("#dpa-weight");
+  const ffEl = document.querySelector("#dpa-ff");
+  const appEl = document.querySelector("#dpa-app");
+  const arrivalModeEl = document.querySelector("#dpa-arrival-mode");
+  const arrivalEl = document.querySelector("#dpa-arrival");
+  const holdingWxModeEl = document.querySelector("#dpa-holding-wx-mode");
+  const holdingWxEl = document.querySelector("#dpa-holding-wx");
+  const holdingSngRwyModeEl = document.querySelector("#dpa-holding-sng-rwy-mode");
+  const holdingSngRwyEl = document.querySelector("#dpa-holding-sng-rwy");
+  const holdingOtherModeEl = document.querySelector("#dpa-holding-other-mode");
+  const holdingOtherEl = document.querySelector("#dpa-holding-other");
+  const divnNdaModeEl = document.querySelector("#dpa-divn-nda-mode");
+  const divnNdaEl = document.querySelector("#dpa-divn-nda");
+  const diversionHoldModeEl = document.querySelector("#dpa-diversion-hold-mode");
+  const diversionHoldEl = document.querySelector("#dpa-diversion-hold");
+  const frfModeEl = document.querySelector("#dpa-frf-mode");
+  const frfEl = document.querySelector("#dpa-frf");
+  const reqAdditionalModeEl = document.querySelector("#dpa-req-additional-mode");
+  const reqAdditionalEl = document.querySelector("#dpa-req-additional");
 
-  const inputEls = inputDefs.map((def) => ({ ...def, el: document.querySelector(def.id) }));
-  if (inputEls.some((entry) => !entry.el)) return;
+  if (
+    !weightEl ||
+    !ffEl ||
+    !appEl ||
+    !arrivalModeEl ||
+    !arrivalEl ||
+    !holdingWxModeEl ||
+    !holdingWxEl ||
+    !holdingSngRwyModeEl ||
+    !holdingSngRwyEl ||
+    !holdingOtherModeEl ||
+    !holdingOtherEl ||
+    !divnNdaModeEl ||
+    !divnNdaEl ||
+    !diversionHoldModeEl ||
+    !diversionHoldEl ||
+    !frfModeEl ||
+    !frfEl ||
+    !reqAdditionalModeEl ||
+    !reqAdditionalEl
+  ) {
+    return;
+  }
+
+  const setModeInputState = (modeEl, valueEl) => {
+    const mode = String(modeEl.value || "kg");
+    const isAuto = mode === "auto";
+    valueEl.disabled = isAuto;
+    valueEl.classList.toggle("auto-derived", isAuto);
+    valueEl.placeholder = isAuto ? "Auto" : mode;
+    if (isAuto) {
+      valueEl.value = "";
+    }
+  };
+
+  const getHoldFuelFlowKgHr = (weightT, altitudeFt, perfAdjust) =>
+    lookupHoldMetric(weightT, altitudeFt, "ffEng") * (1 + perfAdjust) * 2;
+
+  const resolveKgInput = (label, el) => {
+    const value = parseNumOrDefault(el.value, 0);
+    if (!Number.isFinite(value)) {
+      throw new Error(`${label} is invalid`);
+    }
+    if (value < 0) {
+      throw new Error(`${label} must be >= 0`);
+    }
+    if (fieldIsBlank(el.value)) {
+      el.value = formatInputNumber(0, 0);
+    }
+    return value;
+  };
+
+  const resolveMixedEntryKg = ({ label, modeEl, valueEl, minuteFuelFlowKgHr, autoKg = NaN }) => {
+    const mode = String(modeEl.value || "kg");
+    if (mode === "auto") {
+      return autoKg;
+    }
+
+    const inputValue = parseNumOrDefault(valueEl.value, 0);
+    if (!Number.isFinite(inputValue)) {
+      throw new Error(`${label} is invalid`);
+    }
+    if (inputValue < 0) {
+      throw new Error(`${label} must be >= 0`);
+    }
+    if (fieldIsBlank(valueEl.value)) {
+      valueEl.value = formatInputNumber(0, 0);
+    }
+    return mode === "min" ? minuteFuelFlowKgHr * (inputValue / 60) : inputValue;
+  };
+
+  const syncModeUi = () => {
+    setModeInputState(frfModeEl, frfEl);
+  };
+
+  [arrivalModeEl, holdingWxModeEl, holdingSngRwyModeEl, holdingOtherModeEl, divnNdaModeEl, diversionHoldModeEl, frfModeEl, reqAdditionalModeEl].forEach((modeEl) => {
+    modeEl.addEventListener("change", () => {
+      syncModeUi();
+      form.dispatchEvent(new Event("submit"));
+    });
+  });
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
+
+    const weightRequired =
+      String(arrivalModeEl.value) === "min" ||
+      String(holdingWxModeEl.value) === "min" ||
+      String(holdingSngRwyModeEl.value) === "min" ||
+      String(holdingOtherModeEl.value) === "min" ||
+      String(divnNdaModeEl.value) === "min" ||
+      String(diversionHoldModeEl.value) === "min" ||
+      String(frfModeEl.value) === "auto" ||
+      String(reqAdditionalModeEl.value) === "min";
+
+    if (
+      missingFieldsBanner(out, [weightRequired && fieldIsBlank(weightEl.value) ? "Weight" : ""])
+    ) {
+      return;
+    }
+
     try {
-      const values = inputEls.map(({ label, el }) => {
-        const value = parseNumOrDefault(el.value, 0);
-        if (!Number.isFinite(value)) {
-          throw new Error(`${label} is invalid`);
+      const perfAdjust = getGlobalPerfAdjust();
+      const weightT = fieldIsBlank(weightEl.value) ? NaN : parseNum(weightEl.value);
+      if (weightRequired) {
+        if (!Number.isFinite(weightT) || weightT <= 0) {
+          throw new Error("Weight must be > 0 t");
         }
-        if (value < 0) {
-          throw new Error(`${label} must be >= 0`);
-        }
-        if (fieldIsBlank(el.value)) {
-          el.value = formatInputNumber(0, 0);
-        }
-        return { label, value };
+      }
+
+      const ffKg = resolveKgInput("FF", ffEl);
+      const appKg = resolveKgInput("App", appEl);
+
+      const frfFuelFlowKgHr = weightRequired ? getHoldFuelFlowKgHr(weightT, FRF_HOLD_ALTITUDE_FT, perfAdjust) : NaN;
+      const hold20000FuelFlowKgHr = weightRequired
+        ? getHoldFuelFlowKgHr(weightT, ADDITIONAL_HOLD_ALTITUDE_FT, perfAdjust)
+        : NaN;
+      const frfAutoKg = weightRequired ? frfFuelFlowKgHr * 0.5 : 0;
+
+      if (!fieldIsBlank(weightEl.value) && Number.isFinite(weightT)) {
+        weightEl.value = formatInputNumber(weightT, 1);
+      }
+
+      const arrivalKg = resolveMixedEntryKg({
+        label: "Arrival",
+        modeEl: arrivalModeEl,
+        valueEl: arrivalEl,
+        minuteFuelFlowKgHr: frfFuelFlowKgHr,
+      });
+      const holdingWxKg = resolveMixedEntryKg({
+        label: "Holding - Wx",
+        modeEl: holdingWxModeEl,
+        valueEl: holdingWxEl,
+        minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
+      });
+      const holdingSngRwyKg = resolveMixedEntryKg({
+        label: "Holding - SNG RWY",
+        modeEl: holdingSngRwyModeEl,
+        valueEl: holdingSngRwyEl,
+        minuteFuelFlowKgHr: frfFuelFlowKgHr,
+      });
+      const holdingOtherKg = resolveMixedEntryKg({
+        label: "Holding - Other",
+        modeEl: holdingOtherModeEl,
+        valueEl: holdingOtherEl,
+        minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
+      });
+      const divnNdaKg = resolveMixedEntryKg({
+        label: "Divn/NDA",
+        modeEl: divnNdaModeEl,
+        valueEl: divnNdaEl,
+        minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
+      });
+      const diversionHoldKg = resolveMixedEntryKg({
+        label: "Diversion Hold",
+        modeEl: diversionHoldModeEl,
+        valueEl: diversionHoldEl,
+        minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
+      });
+      const contKg = clamp(ffKg * 0.05, MIN_CONTINGENCY_KG, MAX_CONTINGENCY_KG);
+      const frfKg = resolveMixedEntryKg({
+        label: "FRF",
+        modeEl: frfModeEl,
+        valueEl: frfEl,
+        minuteFuelFlowKgHr: frfFuelFlowKgHr,
+        autoKg: frfAutoKg,
+      });
+      const reqAdditionalKg = resolveMixedEntryKg({
+        label: "Req Additional",
+        modeEl: reqAdditionalModeEl,
+        valueEl: reqAdditionalEl,
+        minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
       });
 
-      const total = values.reduce((sum, entry) => sum + entry.value, 0);
       const rows = [
-        ...values.map((entry) => [entry.label, `${format(entry.value, 0)} kg`]),
-        ["DPA Total", `${format(total, 0)} kg`],
+        ["FF", `${format(ffKg, 0)} kg`],
+        ["App", `${format(appKg, 0)} kg`],
+        ["Arrival", `${format(arrivalKg, 0)} kg`],
+        ["Holding - Wx", `${format(holdingWxKg, 0)} kg`],
+        ["Holding - SNG RWY", `${format(holdingSngRwyKg, 0)} kg`],
+        ["Holding - Other", `${format(holdingOtherKg, 0)} kg`],
+        ["Divn/NDA", `${format(divnNdaKg, 0)} kg`],
+        ["Diversion Hold", `${format(diversionHoldKg, 0)} kg`],
+        ["Cont", `${format(contKg, 0)} kg`],
+        ["FRF", `${format(frfKg, 0)} kg`],
+        ["Req Additional", `${format(reqAdditionalKg, 0)} kg`],
+        [
+          "DPA Total",
+          `${format(
+            ffKg +
+              appKg +
+              arrivalKg +
+              holdingWxKg +
+              holdingSngRwyKg +
+              holdingOtherKg +
+              divnNdaKg +
+              diversionHoldKg +
+              contKg +
+              frfKg +
+              reqAdditionalKg,
+            0,
+          )} kg`,
+        ],
       ];
       renderRows(out, rows);
     } catch (error) {
@@ -2849,6 +3035,7 @@ function bindDpaCalculator() {
     }
   });
 
+  syncModeUi();
   form.dispatchEvent(new Event("submit"));
 }
 
@@ -3972,6 +4159,7 @@ function bindGlobalSettings() {
   const refreshAll = () => {
     [
       "#trip-fuel-form",
+      "#dpa-form",
       "#lrc-altitude-form",
       "#engine-out-drift-form",
       "#engine-out-diversion-form",
