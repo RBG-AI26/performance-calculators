@@ -3003,7 +3003,7 @@ function bindDpaCalculator() {
         label: "Divn/NDA",
         modeEl: divnNdaModeEl,
         valueEl: divnNdaEl,
-        minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
+        minuteFuelFlowKgHr: frfFuelFlowKgHr,
       });
       const diversionHoldKg = resolveMixedEntryKg({
         label: "Div Hold",
