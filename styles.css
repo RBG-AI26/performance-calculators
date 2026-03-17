@@ -468,12 +468,11 @@ button:hover {
     grid-column: 1 / -1;
   }
 
-  .dpa-core-inputs,
-  .dpa-entry-list {
-    grid-template-columns: 1fr;
+  .dpa-core-inputs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .dpa-core-inputs {
+  .dpa-entry-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
