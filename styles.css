@@ -179,13 +179,13 @@ label {
 
 .dpa-entry-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.65rem 0.9rem;
+  grid-template-columns: 1fr;
+  gap: 0.45rem;
 }
 
 .dpa-entry-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(118px, 150px);
+  grid-template-columns: minmax(180px, 1fr) 112px 148px;
   align-items: center;
   gap: 0.45rem;
   border: 1px solid #dbe7f1;
@@ -199,6 +199,7 @@ label {
   margin: 0;
   font-weight: 700;
   color: #1d3f59;
+  line-height: 1.15;
 }
 
 .dpa-mode-pills {
@@ -213,7 +214,7 @@ label {
 
 .dpa-mode-pills button {
   min-height: 1.85rem;
-  min-width: 2.55rem;
+  min-width: 0;
   padding: 0 0.5rem;
   border-radius: 8px;
   border: none;
@@ -254,6 +255,11 @@ label {
   width: 100%;
 }
 
+.dpa-entry-row .dpa-mode-pills,
+.dpa-entry-row .dpa-auto-chip {
+  justify-self: start;
+}
+
 .dpa-entry-row-auto input,
 .dpa-entry-row-frf input.auto-derived {
   background: #eef4f9;
@@ -262,7 +268,7 @@ label {
 
 .dpa-actions {
   display: flex;
-  justify-content: flex-start;
+  justify-content: flex-end;
   margin-top: -0.1rem;
 }
 
@@ -274,6 +280,10 @@ label {
 .dpa-results {
   margin-top: 0.3rem;
   padding-top: 0.45rem;
+}
+
+.dpa-results .result-row {
+  grid-template-columns: minmax(180px, 1fr) 148px;
 }
 
 .dpa-results .result-row:last-child {
@@ -462,6 +472,18 @@ button:hover {
   .dpa-entry-list {
     grid-template-columns: 1fr;
   }
+
+  .dpa-core-inputs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dpa-entry-row {
+    grid-template-columns: minmax(0, 1fr) 108px 140px;
+  }
+
+  .dpa-results .result-row {
+    grid-template-columns: minmax(0, 1fr) 140px;
+  }
 }
 
 @media (max-width: 680px) {
@@ -492,11 +514,23 @@ button:hover {
     align-items: stretch;
   }
 
+  .dpa-actions {
+    justify-content: stretch;
+  }
+
+  .dpa-actions button {
+    width: 100%;
+  }
+
   .dpa-mode-pills {
     justify-content: start;
   }
 
   .result-row {
+    grid-template-columns: 1fr;
+  }
+
+  .dpa-results .result-row {
     grid-template-columns: 1fr;
   }
 
