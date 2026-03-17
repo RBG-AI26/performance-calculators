@@ -1,4 +1,4 @@
-const CACHE_NAME = "performance-calculators-v14";
+const CACHE_NAME = "performance-calculators-v15";
 const APP_SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -13,8 +13,11 @@ const APP_SHELL_ASSETS = [
   "./diversion_data.js",
   "./go_around_data.js",
   "./manifest.webmanifest",
-  "./icons/IMG_5358.png",
+  "./icons/icon-180.png",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
 ];
+const APP_SHELL_PATHS = new Set(APP_SHELL_ASSETS.map((asset) => new URL(asset, self.location.href).pathname));
 
 self.addEventListener("message", (event) => {
   if (event?.data?.type === "SKIP_WAITING") {
@@ -49,9 +52,8 @@ self.addEventListener("fetch", (event) => {
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== self.location.origin) return;
 
-  const appShellPathSet = new Set(APP_SHELL_ASSETS.map((asset) => new URL(asset, self.location.href).pathname));
   const isNavigation = event.request.mode === "navigate";
-  const isAppShellAsset = appShellPathSet.has(requestUrl.pathname);
+  const isAppShellAsset = APP_SHELL_PATHS.has(requestUrl.pathname);
 
   const networkFirst = async (cacheKey) => {
     const cache = await caches.open(CACHE_NAME);

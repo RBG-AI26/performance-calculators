@@ -14,14 +14,14 @@
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "./icons/IMG_5358.png",
-      "sizes": "4032x3024",
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./icons/IMG_5358.png",
-      "sizes": "4032x3024",
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     }

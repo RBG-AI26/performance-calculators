@@ -6,6 +6,7 @@
   "scripts": {
     "check:syntax": "node scripts/check-syntax.mjs",
     "check:data": "node scripts/check-data.mjs",
-    "check": "npm run check:syntax && npm run check:data"
+    "check:regressions": "node scripts/check-regressions.mjs",
+    "check": "npm run check:syntax && npm run check:data && npm run check:regressions"
   }
 }

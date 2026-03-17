@@ -82,14 +82,6 @@ function parseAltOrFlInput(rawInput, label = "Alt/FL") {
   };
 }
 
-function normalizeFlightLevelInput(rawInput, label = "Alt/FL") {
-  return parseAltOrFlInput(rawInput, label).flightLevel;
-}
-
-function normalizeAltitudeFtInput(rawInput, label = "Alt/FL") {
-  return parseAltOrFlInput(rawInput, label).altitudeFt;
-}
-
 function getIsaTempCAtPressureAltitude(pressureAltitudeFt) {
   const isaAtmosphere = atmosphereFromPressureAltitude({
     pressureAltitudeFt,
@@ -1167,29 +1159,6 @@ function shortTripCore(anm, weight, perfAdjust) {
   return { flightFuelKg, altitudeFt, timeMinutes };
 }
 
-function shortTripFuelAndAlt(anm, weight, perfAdjust, additionalHoldingMin, arrivalAllowanceMin = 0) {
-  const core = shortTripCore(anm, weight, perfAdjust);
-  const fuelBuildUp = buildFuelRequirement({
-    flightFuelKg: core.flightFuelKg,
-    landingWeightT: weight,
-    additionalHoldingMin,
-    arrivalAllowanceMin,
-    perfAdjust,
-  });
-
-  return {
-    flightFuelKg: core.flightFuelKg,
-    frfKg: fuelBuildUp.frfKg,
-    contingencyKg: fuelBuildUp.contingencyKg,
-    extraHoldingKg: fuelBuildUp.extraHoldingKg,
-    arrivalAllowanceKg: fuelBuildUp.arrivalAllowanceKg,
-    fixedAllowanceKg: fuelBuildUp.fixedAllowanceKg,
-    totalFuelKg: fuelBuildUp.totalFuelKg,
-    altitude: core.altitudeFt,
-    timeMinutes: core.timeMinutes,
-  };
-}
-
 function longRangeAnmFromGnm(gnm, wind) {
   return bilinear(longRangeAnm.gnmAxis, longRangeAnm.windAxis, longRangeAnm.values, gnm, wind);
 }
@@ -1590,31 +1559,6 @@ function solveHeadingForTrack(trackDeg, tasKt, windFromDeg, windSpeedKt) {
     wcaDeg: toDegrees(wcaRad),
     windAlongKt: windAlong,
     windCrossKt: windCross,
-  };
-}
-
-function computeReferenceTurnRadiusNm(tasKt, windSpeedKt, bankLimitDeg = DEFAULT_HOLD_BANK_DEG) {
-  if (!Number.isFinite(tasKt) || tasKt <= 0) {
-    throw new Error("TAS must be > 0 kt");
-  }
-  if (!Number.isFinite(windSpeedKt) || windSpeedKt < 0) {
-    throw new Error("Wind speed must be >= 0 kt");
-  }
-  if (!Number.isFinite(bankLimitDeg) || bankLimitDeg <= 0 || bankLimitDeg >= 90) {
-    throw new Error("Bank limit must be > 0 and < 90 deg");
-  }
-  const referenceGsKt = tasKt + Math.abs(windSpeedKt);
-  if (referenceGsKt <= 0) {
-    throw new Error("Reference ground speed is invalid");
-  }
-  const radiusM = (referenceGsKt * KT_TO_MPS) ** 2 / (G0 * Math.tan(toRadians(bankLimitDeg)));
-  const radiusNm = radiusM / 1852;
-  const referenceRateDegPerSec = toDegrees((referenceGsKt / 3600) / radiusNm);
-  return {
-    referenceGsKt,
-    radiusNm,
-    referenceRateDegPerSec,
-    bankLimitDeg,
   };
 }
 
