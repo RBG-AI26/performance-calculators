@@ -65,113 +65,129 @@
 
       <section class="panel" aria-labelledby="dpa-heading">
         <h2 id="dpa-heading">DPA Calculator</h2>
-        <p class="module-note">Mixed kg/min inputs with shared weight-based auto rules</p>
-        <form id="dpa-form" class="grid">
-          <label>
-            Weight (t)
-            <input type="number" step="0.1" min="0" id="dpa-weight" value="180" />
-          </label>
-          <label>
-            FF
-            <input type="number" step="1" min="0" id="dpa-ff" value="0" />
-          </label>
-          <label>
-            App
-            <input type="number" step="1" min="0" id="dpa-app" value="0" />
-          </label>
-          <label>
-            Arrival
-            <div class="mode-input-grid">
-              <select id="dpa-arrival-mode">
+        <p class="module-note">Enter fuel directly in kg or switch selected rows to minutes.</p>
+        <p class="dpa-assumptions">1500 ft basis: Arrival, Holding - SNG RWY, FRF. 20000 ft basis: Holding - Wx, Holding - Other, Divn/NDA, Diversion Hold, Req Additional.</p>
+        <form id="dpa-form" class="dpa-form">
+          <div class="dpa-core-inputs">
+            <label>
+              Weight (t)
+              <input type="number" step="0.1" min="0" id="dpa-weight" value="180" />
+            </label>
+            <label>
+              FF
+              <input type="number" step="1" min="0" id="dpa-ff" value="0" />
+            </label>
+            <label>
+              App
+              <input type="number" step="1" min="0" id="dpa-app" value="0" />
+            </label>
+          </div>
+          <div class="dpa-entry-list">
+            <div class="dpa-entry-row">
+              <label class="dpa-entry-label" for="dpa-arrival">Arrival</label>
+              <select id="dpa-arrival-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
               </select>
+              <div class="dpa-mode-pills" data-mode-for="dpa-arrival-mode">
+                <button type="button" data-mode-value="kg">kg</button>
+                <button type="button" data-mode-value="min">min</button>
+              </div>
               <input type="number" step="1" min="0" id="dpa-arrival" value="0" />
             </div>
-            <span class="label-note">min uses 1500 ft hold flow</span>
-          </label>
-          <label>
-            Holding - Wx
-            <div class="mode-input-grid">
-              <select id="dpa-holding-wx-mode">
+            <div class="dpa-entry-row">
+              <label class="dpa-entry-label" for="dpa-holding-wx">Holding - Wx</label>
+              <select id="dpa-holding-wx-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
               </select>
+              <div class="dpa-mode-pills" data-mode-for="dpa-holding-wx-mode">
+                <button type="button" data-mode-value="kg">kg</button>
+                <button type="button" data-mode-value="min">min</button>
+              </div>
               <input type="number" step="1" min="0" id="dpa-holding-wx" value="0" />
             </div>
-            <span class="label-note">min uses 20000 ft hold flow</span>
-          </label>
-          <label>
-            Holding - SNG RWY
-            <div class="mode-input-grid">
-              <select id="dpa-holding-sng-rwy-mode">
+            <div class="dpa-entry-row">
+              <label class="dpa-entry-label" for="dpa-holding-sng-rwy">Holding - SNG RWY</label>
+              <select id="dpa-holding-sng-rwy-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
               </select>
+              <div class="dpa-mode-pills" data-mode-for="dpa-holding-sng-rwy-mode">
+                <button type="button" data-mode-value="kg">kg</button>
+                <button type="button" data-mode-value="min">min</button>
+              </div>
               <input type="number" step="1" min="0" id="dpa-holding-sng-rwy" value="0" />
             </div>
-            <span class="label-note">min uses 1500 ft hold flow</span>
-          </label>
-          <label>
-            Holding - Other
-            <div class="mode-input-grid">
-              <select id="dpa-holding-other-mode">
+            <div class="dpa-entry-row">
+              <label class="dpa-entry-label" for="dpa-holding-other">Holding - Other</label>
+              <select id="dpa-holding-other-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
               </select>
+              <div class="dpa-mode-pills" data-mode-for="dpa-holding-other-mode">
+                <button type="button" data-mode-value="kg">kg</button>
+                <button type="button" data-mode-value="min">min</button>
+              </div>
               <input type="number" step="1" min="0" id="dpa-holding-other" value="0" />
             </div>
-            <span class="label-note">min uses 20000 ft hold flow</span>
-          </label>
-          <label>
-            Divn/NDA
-            <div class="mode-input-grid">
-              <select id="dpa-divn-nda-mode">
+            <div class="dpa-entry-row">
+              <label class="dpa-entry-label" for="dpa-divn-nda">Divn/NDA</label>
+              <select id="dpa-divn-nda-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
               </select>
+              <div class="dpa-mode-pills" data-mode-for="dpa-divn-nda-mode">
+                <button type="button" data-mode-value="kg">kg</button>
+                <button type="button" data-mode-value="min">min</button>
+              </div>
               <input type="number" step="1" min="0" id="dpa-divn-nda" value="0" />
             </div>
-            <span class="label-note">min uses 20000 ft hold flow</span>
-          </label>
-          <label>
-            Diversion Hold
-            <div class="mode-input-grid">
-              <select id="dpa-diversion-hold-mode">
+            <div class="dpa-entry-row">
+              <label class="dpa-entry-label" for="dpa-diversion-hold">Diversion Hold</label>
+              <select id="dpa-diversion-hold-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
               </select>
+              <div class="dpa-mode-pills" data-mode-for="dpa-diversion-hold-mode">
+                <button type="button" data-mode-value="kg">kg</button>
+                <button type="button" data-mode-value="min">min</button>
+              </div>
               <input type="number" step="1" min="0" id="dpa-diversion-hold" value="0" />
             </div>
-            <span class="label-note">min uses 20000 ft hold flow</span>
-          </label>
-          <label>
-            Cont
-            <input type="text" id="dpa-cont-display" value="Auto: 5% of FF (min 350, max 1200)" disabled />
-          </label>
-          <label>
-            FRF
-            <div class="mode-input-grid">
-              <select id="dpa-frf-mode">
+            <div class="dpa-entry-row dpa-entry-row-auto">
+              <span class="dpa-entry-label">Cont</span>
+              <span class="dpa-auto-chip">auto</span>
+              <input type="text" id="dpa-cont-display" value="5% of FF (min 350, max 1200)" disabled />
+            </div>
+            <div class="dpa-entry-row dpa-entry-row-frf">
+              <label class="dpa-entry-label" for="dpa-frf">FRF</label>
+              <select id="dpa-frf-mode" class="sr-only">
                 <option value="auto" selected>auto</option>
                 <option value="kg">kg</option>
               </select>
+              <div class="dpa-mode-pills" data-mode-for="dpa-frf-mode">
+                <button type="button" data-mode-value="auto">auto</button>
+                <button type="button" data-mode-value="kg">kg</button>
+              </div>
               <input type="number" step="1" min="0" id="dpa-frf" value="" placeholder="Auto" />
             </div>
-            <span class="label-note">auto = 30 min at 1500 ft hold flow</span>
-          </label>
-          <label>
-            Req Additional
-            <div class="mode-input-grid">
-              <select id="dpa-req-additional-mode">
+            <div class="dpa-entry-row">
+              <label class="dpa-entry-label" for="dpa-req-additional">Req Additional</label>
+              <select id="dpa-req-additional-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
               </select>
+              <div class="dpa-mode-pills" data-mode-for="dpa-req-additional-mode">
+                <button type="button" data-mode-value="kg">kg</button>
+                <button type="button" data-mode-value="min">min</button>
+              </div>
               <input type="number" step="1" min="0" id="dpa-req-additional" value="0" />
             </div>
-            <span class="label-note">min uses 20000 ft hold flow</span>
-          </label>
-          <button type="submit">Calculate</button>
+          </div>
+          <div class="dpa-actions">
+            <button type="submit">Calculate</button>
+          </div>
         </form>
         <div id="dpa-out" class="results"></div>
       </section>

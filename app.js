@@ -2860,6 +2860,29 @@ function bindDpaCalculator() {
     }
   };
 
+  const bindModePills = (modeEl) => {
+    const pillGroup = form.querySelector(`[data-mode-for="${modeEl.id}"]`);
+    if (!pillGroup) return;
+    const buttons = Array.from(pillGroup.querySelectorAll("button[data-mode-value]"));
+    const syncButtons = () => {
+      const currentMode = String(modeEl.value || "");
+      buttons.forEach((button) => {
+        const isActive = button.dataset.modeValue === currentMode;
+        button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+    };
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const nextMode = String(button.dataset.modeValue || "");
+        if (!nextMode || nextMode === modeEl.value) return;
+        modeEl.value = nextMode;
+        modeEl.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    });
+    syncButtons();
+    return syncButtons;
+  };
+
   const getHoldFuelFlowKgHr = (weightT, altitudeFt, perfAdjust) =>
     lookupHoldMetric(weightT, altitudeFt, "ffEng") * (1 + perfAdjust) * 2;
 
@@ -2898,9 +2921,22 @@ function bindDpaCalculator() {
 
   const syncModeUi = () => {
     setModeInputState(frfModeEl, frfEl);
+    syncModeButtons.forEach((syncButtons) => syncButtons());
   };
 
-  [arrivalModeEl, holdingWxModeEl, holdingSngRwyModeEl, holdingOtherModeEl, divnNdaModeEl, diversionHoldModeEl, frfModeEl, reqAdditionalModeEl].forEach((modeEl) => {
+  const modeEls = [
+    arrivalModeEl,
+    holdingWxModeEl,
+    holdingSngRwyModeEl,
+    holdingOtherModeEl,
+    divnNdaModeEl,
+    diversionHoldModeEl,
+    frfModeEl,
+    reqAdditionalModeEl,
+  ];
+  const syncModeButtons = modeEls.map(bindModePills).filter(Boolean);
+
+  modeEls.forEach((modeEl) => {
     modeEl.addEventListener("change", () => {
       syncModeUi();
       form.dispatchEvent(new Event("submit"));

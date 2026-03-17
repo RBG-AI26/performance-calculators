@@ -136,10 +136,137 @@ label {
   gap: 0.45rem;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .label-note {
   font-size: 0.78rem;
   font-weight: 500;
   color: #4a657c;
+}
+
+.dpa-assumptions {
+  margin: -0.35rem 0 0.8rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #d8e6f2;
+  border-radius: 10px;
+  background: #f6fbff;
+  color: #4a657c;
+  font-size: 0.8rem;
+}
+
+.dpa-form {
+  display: grid;
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.dpa-core-inputs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.dpa-entry-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 0.9rem;
+}
+
+.dpa-entry-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(118px, 150px);
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid #dbe7f1;
+  border-radius: 12px;
+  background: #fbfdff;
+  padding: 0.55rem 0.65rem;
+}
+
+.dpa-entry-label {
+  min-width: 0;
+  margin: 0;
+  font-weight: 700;
+  color: #1d3f59;
+}
+
+.dpa-mode-pills {
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border: 1px solid #c9d9e7;
+  border-radius: 10px;
+  background: #edf4fa;
+}
+
+.dpa-mode-pills button {
+  min-height: 2rem;
+  min-width: 3rem;
+  padding: 0 0.7rem;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #4a657c;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.dpa-mode-pills button:hover {
+  background: rgba(255, 255, 255, 0.7);
+  filter: none;
+}
+
+.dpa-mode-pills button[aria-pressed="true"] {
+  background: #ffffff;
+  color: #083f67;
+  box-shadow: 0 1px 2px rgba(10, 56, 89, 0.12);
+}
+
+.dpa-auto-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  min-width: 3.6rem;
+  padding: 0 0.7rem;
+  border-radius: 10px;
+  border: 1px solid #c9d9e7;
+  background: #edf4fa;
+  color: #4a657c;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.dpa-entry-row input {
+  width: 100%;
+}
+
+.dpa-entry-row-auto input,
+.dpa-entry-row-frf input.auto-derived {
+  background: #eef4f9;
+  color: #6d7f90;
+}
+
+.dpa-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.dpa-actions button {
+  min-width: min(280px, 100%);
 }
 
 input.auto-derived {
@@ -292,7 +419,6 @@ button:hover {
 
 @media (min-width: 981px) and (max-width: 1366px) and (orientation: landscape) {
   #trip-fuel-form,
-  #dpa-form,
   #lrc-altitude-form,
   #engine-out-drift-form,
   #engine-out-diversion-form,
@@ -320,6 +446,11 @@ button:hover {
   .global-setting-field {
     grid-column: 1 / -1;
   }
+
+  .dpa-core-inputs,
+  .dpa-entry-list {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 680px) {
@@ -338,6 +469,20 @@ button:hover {
 
   .grid {
     grid-template-columns: 1fr;
+  }
+
+  .dpa-core-inputs,
+  .dpa-entry-list {
+    grid-template-columns: 1fr;
+  }
+
+  .dpa-entry-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .dpa-mode-pills {
+    justify-content: start;
   }
 
   .result-row {
