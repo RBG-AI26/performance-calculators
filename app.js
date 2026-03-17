@@ -2982,19 +2982,19 @@ function bindDpaCalculator() {
 
       const arrivalKg = resolveKgInput("Arrival", arrivalEl);
       const holdingWxKg = resolveMixedEntryKg({
-        label: "Holding - Wx",
+        label: "Wx Hold",
         modeEl: holdingWxModeEl,
         valueEl: holdingWxEl,
         minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
       });
       const holdingSngRwyKg = resolveMixedEntryKg({
-        label: "Holding - SNG RWY",
+        label: "SNG RWY Hold",
         modeEl: holdingSngRwyModeEl,
         valueEl: holdingSngRwyEl,
         minuteFuelFlowKgHr: frfFuelFlowKgHr,
       });
       const holdingOtherKg = resolveMixedEntryKg({
-        label: "Holding - Other",
+        label: "Other Hold",
         modeEl: holdingOtherModeEl,
         valueEl: holdingOtherEl,
         minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
@@ -3006,7 +3006,7 @@ function bindDpaCalculator() {
         minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
       });
       const diversionHoldKg = resolveMixedEntryKg({
-        label: "Diversion Hold",
+        label: "Div Hold",
         modeEl: diversionHoldModeEl,
         valueEl: diversionHoldEl,
         minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
@@ -3020,7 +3020,7 @@ function bindDpaCalculator() {
         autoKg: frfAutoKg,
       });
       const reqAdditionalKg = resolveMixedEntryKg({
-        label: "Req Additional",
+        label: "Req Addl",
         modeEl: reqAdditionalModeEl,
         valueEl: reqAdditionalEl,
         minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
@@ -3030,14 +3030,14 @@ function bindDpaCalculator() {
         ["FF", `${format(ffKg, 0)} kg`],
         ["App", `${format(appKg, 0)} kg`],
         ["Arrival", `${format(arrivalKg, 0)} kg`],
-        ["Holding - Wx", `${format(holdingWxKg, 0)} kg`],
-        ["Holding - SNG RWY", `${format(holdingSngRwyKg, 0)} kg`],
-        ["Holding - Other", `${format(holdingOtherKg, 0)} kg`],
+        ["Wx Hold", `${format(holdingWxKg, 0)} kg`],
+        ["SNG RWY Hold", `${format(holdingSngRwyKg, 0)} kg`],
+        ["Other Hold", `${format(holdingOtherKg, 0)} kg`],
         ["Divn/NDA", `${format(divnNdaKg, 0)} kg`],
-        ["Diversion Hold", `${format(diversionHoldKg, 0)} kg`],
+        ["Div Hold", `${format(diversionHoldKg, 0)} kg`],
         ["Cont", `${format(contKg, 0)} kg`],
         ["FRF", `${format(frfKg, 0)} kg`],
-        ["Req Additional", `${format(reqAdditionalKg, 0)} kg`],
+        ["Req Addl", `${format(reqAdditionalKg, 0)} kg`],
         [
           "DPA Total",
           `${format(

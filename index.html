@@ -66,7 +66,7 @@
       <section class="panel" aria-labelledby="dpa-heading">
         <h2 id="dpa-heading">DPA Calculator</h2>
         <p class="module-note">Enter fuel directly in kg or switch selected rows to minutes.</p>
-        <p class="dpa-assumptions">1500 ft basis: Holding - SNG RWY, FRF. 20000 ft basis: Holding - Wx, Holding - Other, Divn/NDA, Diversion Hold, Req Additional.</p>
+        <p class="dpa-assumptions">1500 ft basis: SNG RWY Hold, FRF. 20000 ft basis: Wx Hold, Other Hold, Divn/NDA, Div Hold, Req Addl.</p>
         <form id="dpa-form" class="dpa-form">
           <div class="dpa-core-inputs">
             <label>
@@ -88,7 +88,7 @@
           </div>
           <div class="dpa-entry-list">
             <div class="dpa-entry-row">
-              <label class="dpa-entry-label" for="dpa-holding-wx">Holding - Wx</label>
+              <label class="dpa-entry-label" for="dpa-holding-wx">Wx Hold</label>
               <select id="dpa-holding-wx-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
@@ -100,7 +100,7 @@
               <input type="number" step="1" min="0" id="dpa-holding-wx" value="0" />
             </div>
             <div class="dpa-entry-row">
-              <label class="dpa-entry-label" for="dpa-holding-sng-rwy">Holding - SNG RWY</label>
+              <label class="dpa-entry-label" for="dpa-holding-sng-rwy">SNG RWY Hold</label>
               <select id="dpa-holding-sng-rwy-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
@@ -112,7 +112,7 @@
               <input type="number" step="1" min="0" id="dpa-holding-sng-rwy" value="0" />
             </div>
             <div class="dpa-entry-row">
-              <label class="dpa-entry-label" for="dpa-holding-other">Holding - Other</label>
+              <label class="dpa-entry-label" for="dpa-holding-other">Other Hold</label>
               <select id="dpa-holding-other-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
@@ -136,7 +136,7 @@
               <input type="number" step="1" min="0" id="dpa-divn-nda" value="0" />
             </div>
             <div class="dpa-entry-row">
-              <label class="dpa-entry-label" for="dpa-diversion-hold">Diversion Hold</label>
+              <label class="dpa-entry-label" for="dpa-diversion-hold">Div Hold</label>
               <select id="dpa-diversion-hold-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
@@ -165,7 +165,7 @@
               <input type="number" step="1" min="0" id="dpa-frf" value="" placeholder="Auto" />
             </div>
             <div class="dpa-entry-row">
-              <label class="dpa-entry-label" for="dpa-req-additional">Req Additional</label>
+              <label class="dpa-entry-label" for="dpa-req-additional">Req Addl</label>
               <select id="dpa-req-additional-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
