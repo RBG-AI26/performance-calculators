@@ -11,6 +11,8 @@ const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTrip
 const APP_VERSION = "v7.6.0";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
+const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
+const NON_PERSISTED_FIELD_IDS = new Set(["scenario-name", "scenario-select"]);
 
 const R_AIR = 287.05287;
 const GAMMA = 1.4;
@@ -2477,12 +2479,34 @@ function missingFieldsBanner(target, missingNames) {
   return true;
 }
 
+function recalculateAllForms() {
+  [
+    "#trip-fuel-form",
+    "#dpa-form",
+    "#lrc-altitude-form",
+    "#engine-out-drift-form",
+    "#engine-out-diversion-form",
+    "#diversion-low-form",
+    "#diversion-high-form",
+    "#go-around-form",
+    "#holding-form",
+    "#lose-time-form",
+    "#conversion-form",
+    "#cog-limit-form",
+  ].forEach((selector) => {
+    const form = document.querySelector(selector);
+    if (form) form.dispatchEvent(new Event("submit"));
+  });
+}
+
 function fieldIsBlank(value) {
   return String(value ?? "").trim() === "";
 }
 
 function getPersistableFields() {
-  return Array.from(document.querySelectorAll("input[id], select[id], textarea[id]"));
+  return Array.from(document.querySelectorAll("input[id], select[id], textarea[id]")).filter(
+    (el) => el.id && !NON_PERSISTED_FIELD_IDS.has(el.id),
+  );
 }
 
 function captureInputState() {
@@ -2499,6 +2523,22 @@ function captureInputState() {
   return snapshot;
 }
 
+function applyCapturedInputState(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return;
+  getPersistableFields().forEach((el) => {
+    if (!el.id || !(el.id in snapshot)) return;
+    const savedEntry = snapshot[el.id];
+    const type = (el.type || "").toLowerCase();
+    if ((type === "checkbox" || type === "radio") && typeof savedEntry?.checked === "boolean") {
+      el.checked = savedEntry.checked;
+      return;
+    }
+    if (typeof savedEntry?.value === "string") {
+      el.value = savedEntry.value;
+    }
+  });
+}
+
 function persistInputState() {
   try {
     localStorage.setItem(INPUT_STATE_STORAGE_KEY, JSON.stringify(captureInputState()));
@@ -2511,22 +2551,28 @@ function restorePersistedInputState() {
   try {
     const raw = localStorage.getItem(INPUT_STATE_STORAGE_KEY);
     if (!raw) return;
-    const saved = JSON.parse(raw);
-    if (!saved || typeof saved !== "object") return;
-    getPersistableFields().forEach((el) => {
-      if (!el.id || !(el.id in saved)) return;
-      const savedEntry = saved[el.id];
-      const type = (el.type || "").toLowerCase();
-      if ((type === "checkbox" || type === "radio") && typeof savedEntry?.checked === "boolean") {
-        el.checked = savedEntry.checked;
-        return;
-      }
-      if (typeof savedEntry?.value === "string") {
-        el.value = savedEntry.value;
-      }
-    });
+    applyCapturedInputState(JSON.parse(raw));
   } catch {
     // Ignore malformed persisted state and continue with markup defaults.
+  }
+}
+
+function readNamedScenarios() {
+  try {
+    const raw = localStorage.getItem(SCENARIO_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeNamedScenarios(scenarios) {
+  try {
+    localStorage.setItem(SCENARIO_STORAGE_KEY, JSON.stringify(scenarios));
+  } catch {
+    // Ignore storage failures and keep the app usable.
   }
 }
 
@@ -4113,24 +4159,104 @@ function bindGlobalSettings() {
   const globalPerfEl = document.querySelector("#global-perf-adjust");
   if (!globalPerfEl) return;
 
-  const refreshAll = () => {
-    [
-      "#trip-fuel-form",
-      "#dpa-form",
-      "#lrc-altitude-form",
-      "#engine-out-drift-form",
-      "#engine-out-diversion-form",
-      "#diversion-low-form",
-      "#diversion-high-form",
-      "#holding-form",
-      "#lose-time-form",
-    ].forEach((selector) => {
-      const form = document.querySelector(selector);
-      if (form) form.dispatchEvent(new Event("submit"));
+  globalPerfEl.addEventListener("change", recalculateAllForms);
+}
+
+function bindNamedScenarios() {
+  const nameEl = document.querySelector("#scenario-name");
+  const selectEl = document.querySelector("#scenario-select");
+  const saveBtn = document.querySelector("#scenario-save");
+  const loadBtn = document.querySelector("#scenario-load");
+  const deleteBtn = document.querySelector("#scenario-delete");
+  const statusEl = document.querySelector("#scenario-status");
+  if (!nameEl || !selectEl || !saveBtn || !loadBtn || !deleteBtn || !statusEl) return;
+
+  const setStatus = (message = "", tone = "") => {
+    statusEl.textContent = message;
+    if (tone) {
+      statusEl.dataset.tone = tone;
+    } else {
+      delete statusEl.dataset.tone;
+    }
+  };
+
+  const populateScenarioOptions = (selectedName = "") => {
+    const scenarios = readNamedScenarios();
+    const names = Object.entries(scenarios)
+      .sort(([, a], [, b]) => String(b?.savedAt || "").localeCompare(String(a?.savedAt || "")))
+      .map(([name]) => name);
+
+    selectEl.innerHTML = '<option value="">Select saved scenario</option>';
+    names.forEach((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      if (name === selectedName) option.selected = true;
+      selectEl.appendChild(option);
     });
   };
 
-  globalPerfEl.addEventListener("change", refreshAll);
+  saveBtn.addEventListener("click", () => {
+    const name = String(nameEl.value || "").trim();
+    if (!name) {
+      setStatus("Enter a scenario name first.", "error");
+      return;
+    }
+    const scenarios = readNamedScenarios();
+    scenarios[name] = {
+      savedAt: new Date().toISOString(),
+      state: captureInputState(),
+    };
+    writeNamedScenarios(scenarios);
+    populateScenarioOptions(name);
+    selectEl.value = name;
+    setStatus(`Saved scenario: ${name}`, "success");
+  });
+
+  loadBtn.addEventListener("click", () => {
+    const name = String(selectEl.value || "").trim();
+    if (!name) {
+      setStatus("Choose a saved scenario to load.", "error");
+      return;
+    }
+    const scenario = readNamedScenarios()[name];
+    if (!scenario?.state) {
+      setStatus(`Scenario not found: ${name}`, "error");
+      populateScenarioOptions();
+      return;
+    }
+    applyCapturedInputState(scenario.state);
+    persistInputState();
+    recalculateAllForms();
+    nameEl.value = name;
+    setStatus(`Loaded scenario: ${name}`, "success");
+  });
+
+  deleteBtn.addEventListener("click", () => {
+    const name = String(selectEl.value || nameEl.value || "").trim();
+    if (!name) {
+      setStatus("Choose a saved scenario to delete.", "error");
+      return;
+    }
+    const scenarios = readNamedScenarios();
+    if (!(name in scenarios)) {
+      setStatus(`Scenario not found: ${name}`, "error");
+      populateScenarioOptions();
+      return;
+    }
+    delete scenarios[name];
+    writeNamedScenarios(scenarios);
+    populateScenarioOptions();
+    if (nameEl.value.trim() === name) nameEl.value = "";
+    setStatus(`Deleted scenario: ${name}`, "success");
+  });
+
+  selectEl.addEventListener("change", () => {
+    if (selectEl.value) nameEl.value = selectEl.value;
+    setStatus("");
+  });
+
+  populateScenarioOptions();
 }
 
 function setAltFlRangeLabels() {
@@ -4276,4 +4402,5 @@ bindLoseTime();
 bindConversion();
 bindCogLimit();
 bindGlobalSettings();
+bindNamedScenarios();
 registerServiceWorker();

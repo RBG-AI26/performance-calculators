@@ -32,10 +32,29 @@
             Flight Plan Performance Adjustment (applies to all fuel calculations)
             <input type="number" step="0.1" id="global-perf-adjust" value="0" />
           </label>
+          <div class="scenario-toolbar">
+            <div class="scenario-toolbar-title">Named Scenarios</div>
+            <label>
+              Scenario Name
+              <input type="text" id="scenario-name" value="" placeholder="e.g. PER-SYD plan" />
+            </label>
+            <label>
+              Saved Scenarios
+              <select id="scenario-select">
+                <option value="">Select saved scenario</option>
+              </select>
+            </label>
+            <div class="scenario-actions">
+              <button type="button" id="scenario-save">Save</button>
+              <button type="button" id="scenario-load">Load</button>
+              <button type="button" id="scenario-delete" class="secondary-button">Delete</button>
+            </div>
+            <div id="scenario-status" class="scenario-status" aria-live="polite"></div>
+          </div>
         </div>
       </section>
 
-      <section class="panel" aria-labelledby="trip-fuel-heading">
+      <section class="panel" data-family="fuel" aria-labelledby="trip-fuel-heading">
         <h2 id="trip-fuel-heading">Trip Fuel</h2>
         <p class="module-note">Short-trip/LRC unified fuel model with ANM blending from 600-800</p>
         <form id="trip-fuel-form" class="grid">
@@ -64,7 +83,7 @@
         <div id="trip-fuel-out" class="results"></div>
       </section>
 
-      <section class="panel" aria-labelledby="dpa-heading">
+      <section class="panel" data-family="fuel" aria-labelledby="dpa-heading">
         <h2 id="dpa-heading">DPA Calculator</h2>
         <p class="module-note">Enter fuel directly in kg or switch selected rows to minutes.</p>
         <p class="dpa-assumptions">1500 ft basis: SNG RWY Hold, Divn/NDA, FRF. 20000 ft basis: Wx Hold, Div Hold, Rqd Additional/Other Hold.</p>
@@ -173,7 +192,7 @@
         <div id="dpa-out" class="results dpa-results"></div>
       </section>
 
-      <section class="panel" aria-labelledby="lrc-altitude-heading">
+      <section class="panel" data-family="altitude" aria-labelledby="lrc-altitude-heading">
         <h2 id="lrc-altitude-heading">Altitude Data</h2>
         <form id="lrc-altitude-form" class="grid">
           <label>
@@ -202,7 +221,7 @@
         <div id="lrc-altitude-out" class="results"></div>
       </section>
 
-      <section class="panel" aria-labelledby="engine-out-heading">
+      <section class="panel" data-family="engine-out" aria-labelledby="engine-out-heading">
         <h2 id="engine-out-heading">Engine-Out / Driftdown</h2>
         <h3 class="submodule-title">Driftdown</h3>
         <form id="engine-out-drift-form" class="grid">
@@ -249,7 +268,7 @@
         <div id="engine-out-diversion-out" class="results"></div>
       </section>
 
-      <section class="panel" aria-labelledby="diversion-low-heading">
+      <section class="panel" data-family="fuel" aria-labelledby="diversion-low-heading">
         <h2 id="diversion-low-heading">Diversion (LRC Low)</h2>
         <p class="module-note">LRC - Descent .85/310/250</p>
         <p class="module-note module-limits" id="div-low-limits"></p>
@@ -283,7 +302,7 @@
         <div id="diversion-low-out" class="results"></div>
       </section>
 
-      <section class="panel" aria-labelledby="diversion-high-heading">
+      <section class="panel" data-family="fuel" aria-labelledby="diversion-high-heading">
         <h2 id="diversion-high-heading">Diversion (LRC High)</h2>
         <p class="module-note">LRC - Descent .85/310/250</p>
         <p class="module-note module-limits" id="div-high-limits"></p>
@@ -317,7 +336,7 @@
         <div id="diversion-high-out" class="results"></div>
       </section>
 
-      <section class="panel" aria-labelledby="go-around-heading">
+      <section class="panel" data-family="altitude" aria-labelledby="go-around-heading">
         <h2 id="go-around-heading">Go-Around Climb Gradient</h2>
         <form id="go-around-form" class="grid">
           <label>
@@ -367,7 +386,7 @@
         <div id="go-around-out" class="results"></div>
       </section>
 
-      <section class="panel" aria-labelledby="holding-heading">
+      <section class="panel" data-family="holding" aria-labelledby="holding-heading">
         <h2 id="holding-heading">Holding + Endurance</h2>
         <form id="holding-form" class="grid">
           <label>
@@ -430,7 +449,7 @@
         <div id="holding-out" class="results"></div>
       </section>
 
-      <section class="panel" aria-labelledby="lose-time-heading">
+      <section class="panel" data-family="holding" aria-labelledby="lose-time-heading">
         <h2 id="lose-time-heading">Lose Time Strategy Comparison</h2>
         <form id="lose-time-form" class="grid">
           <label>
@@ -474,7 +493,7 @@
         <div id="lose-time-out" class="results"></div>
       </section>
 
-      <section class="panel" aria-labelledby="conversion-heading">
+      <section class="panel" data-family="altitude" aria-labelledby="conversion-heading">
         <h2 id="conversion-heading">IAS / Mach / TAS (ISA model)</h2>
         <form id="conversion-form" class="grid">
           <label>
