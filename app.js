@@ -14,7 +14,7 @@ const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
 const LINKED_WEIGHT_OVERRIDE_STORAGE_KEY = "performance-calculators-linked-weight-overrides-v1";
 const NON_PERSISTED_FIELD_IDS = new Set(["scenario-name", "scenario-select"]);
-const LINKED_START_WEIGHT_FIELD_IDS = ["dpa-weight", "lrc-alt-weight", "eo-weight", "eo-div-weight"];
+const LINKED_START_WEIGHT_FIELD_IDS = ["dpa-weight", "lrc-alt-weight", "eo-weight", "eo-div-weight", "cog-weight"];
 
 const R_AIR = 287.05287;
 const GAMMA = 1.4;
