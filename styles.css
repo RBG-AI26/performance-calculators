@@ -659,6 +659,17 @@ button:hover {
   font-weight: 700;
 }
 
+.result-row-stack {
+  grid-template-columns: 1fr;
+  gap: 0.15rem;
+}
+
+.result-row-stack .result-value {
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .result-spacer {
   height: 0.6rem;
 }

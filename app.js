@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.7.0";
+const APP_VERSION = "v7.7.1";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -2653,7 +2653,11 @@ function renderRows(target, rows) {
         return `<div class="result-warning">${v}</div>`;
       }
       const emphasizedRows = new Set(["Inbound Leg Time", "DPA Total", "Total Fuel Required"]);
-      const rowClass = emphasizedRows.has(k) ? "result-row result-row-emphasis" : "result-row";
+      const stackedRows = new Set(["Estimated Step Climb Triggers", "Step Climb Plan", "Option B Speed Reduction Start"]);
+      const rowClasses = ["result-row"];
+      if (emphasizedRows.has(k)) rowClasses.push("result-row-emphasis");
+      if (stackedRows.has(k)) rowClasses.push("result-row-stack");
+      const rowClass = rowClasses.join(" ");
       return `<div class="${rowClass}"><span class="result-key">${k}</span><span class="result-value">${v}</span></div>`;
     })
     .join("");
