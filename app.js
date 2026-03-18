@@ -1363,6 +1363,7 @@ function calculateTripFuelEnhanced({
   perfAdjust,
   taxiKg = 0,
   appKg = FIXED_ALLOWANCE_KG,
+  arrivalFuelKg = 0,
   wxHoldKg = 0,
   sngRwyHoldKg = 0,
   divnNdaKg = 0,
@@ -1381,6 +1382,7 @@ function calculateTripFuelEnhanced({
     core.flightFuelKg +
     resolvedFrfKg +
     resolvedContingencyKg +
+    arrivalFuelKg +
     wxHoldKg +
     sngRwyHoldKg +
     divnNdaKg +
@@ -1392,6 +1394,7 @@ function calculateTripFuelEnhanced({
     ...core,
     taxiKg,
     appKg,
+    arrivalFuelKg,
     wxHoldKg,
     sngRwyHoldKg,
     divnNdaKg,
@@ -2516,7 +2519,7 @@ function renderRows(target, rows) {
       if (k === "__warning__") {
         return `<div class="result-warning">${v}</div>`;
       }
-      const emphasizedRows = new Set(["Inbound Leg Time", "DPA Total"]);
+      const emphasizedRows = new Set(["Inbound Leg Time", "DPA Total", "Total Fuel Required"]);
       const rowClass = emphasizedRows.has(k) ? "result-row result-row-emphasis" : "result-row";
       return `<div class="${rowClass}"><span class="result-key">${k}</span><span class="result-value">${v}</span></div>`;
     })
@@ -2935,6 +2938,8 @@ function bindTripFuel() {
   const weightEl = document.querySelector("#trip-weight");
   const taxiEl = document.querySelector("#trip-taxi");
   const appEl = document.querySelector("#trip-app");
+  const arrivalFuelModeEl = document.querySelector("#trip-arrival-fuel-mode");
+  const arrivalFuelEl = document.querySelector("#trip-arrival-fuel");
   const wxHoldModeEl = document.querySelector("#trip-wx-hold-mode");
   const wxHoldEl = document.querySelector("#trip-wx-hold");
   const sngRwyHoldModeEl = document.querySelector("#trip-sng-rwy-hold-mode");
@@ -2956,6 +2961,8 @@ function bindTripFuel() {
     !weightEl ||
     !taxiEl ||
     !appEl ||
+    !arrivalFuelModeEl ||
+    !arrivalFuelEl ||
     !wxHoldModeEl ||
     !wxHoldEl ||
     !sngRwyHoldModeEl ||
@@ -2981,6 +2988,7 @@ function bindTripFuel() {
   };
 
   const modeEls = [
+    arrivalFuelModeEl,
     wxHoldModeEl,
     sngRwyHoldModeEl,
     divnNdaModeEl,
@@ -3026,6 +3034,12 @@ function bindTripFuel() {
         perfAdjust,
         taxiKg,
         appKg,
+      });
+      const arrivalFuelKg = resolveMixedEntryKg({
+        label: "Arrival Fuel",
+        modeEl: arrivalFuelModeEl,
+        valueEl: arrivalFuelEl,
+        minuteFuelFlowKgHr: frfFuelFlowKgHr,
       });
 
       const wxHoldKg = resolveMixedEntryKg({
@@ -3080,6 +3094,7 @@ function bindTripFuel() {
         perfAdjust,
         taxiKg,
         appKg,
+        arrivalFuelKg,
         wxHoldKg,
         sngRwyHoldKg,
         divnNdaKg,
@@ -3100,6 +3115,7 @@ function bindTripFuel() {
         ["Flight Fuel", `${format(result.flightFuelKg, 0)} kg`],
         ["FRF", `${format(result.frfKg, 0)} kg`],
         ["Cont", `${format(result.contingencyKg, 0)} kg`],
+        ["Arrival Fuel", `${format(result.arrivalFuelKg, 0)} kg`],
         ["Wx Hold", `${format(result.wxHoldKg, 0)} kg`],
         ["SNG RWY Hold", `${format(result.sngRwyHoldKg, 0)} kg`],
         ["Divn/NDA", `${format(result.divnNdaKg, 0)} kg`],

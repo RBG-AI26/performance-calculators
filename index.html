@@ -57,7 +57,7 @@
       <section class="panel" data-family="fuel" aria-labelledby="trip-fuel-heading">
         <h2 id="trip-fuel-heading">Trip Fuel</h2>
         <p class="module-note">Short-trip/LRC unified fuel model with ANM blending from 600-800</p>
-        <p class="dpa-assumptions">1500 ft basis: SNG RWY Hold, Divn/NDA, FRF. 20000 ft basis: Wx Hold, Div Hold, Rqd Additional/Other Hold.</p>
+        <p class="dpa-assumptions">1500 ft basis: Arrival Fuel, SNG RWY Hold, Divn/NDA, FRF. 20000 ft basis: Wx Hold, Div Hold, Rqd Additional/Other Hold.</p>
         <form id="trip-fuel-form" class="trip-fuel-form">
           <div class="trip-fuel-core-inputs">
             <label>
@@ -83,6 +83,18 @@
               <label class="dpa-entry-label" for="trip-app">App</label>
               <span class="dpa-static-chip">kg</span>
               <input type="number" step="1" min="0" id="trip-app" value="200" />
+            </div>
+            <div class="dpa-entry-row">
+              <label class="dpa-entry-label" for="trip-arrival-fuel">Arrival Fuel</label>
+              <select id="trip-arrival-fuel-mode" class="sr-only">
+                <option value="kg" selected>kg</option>
+                <option value="min">min</option>
+              </select>
+              <div class="dpa-mode-pills" data-mode-for="trip-arrival-fuel-mode">
+                <button type="button" data-mode-value="kg">kg</button>
+                <button type="button" data-mode-value="min">min</button>
+              </div>
+              <input type="number" step="1" min="0" id="trip-arrival-fuel" value="0" />
             </div>
             <div class="dpa-entry-row">
               <label class="dpa-entry-label" for="trip-wx-hold">Wx Hold</label>
