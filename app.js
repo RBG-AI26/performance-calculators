@@ -12,7 +12,9 @@ const APP_VERSION = "v7.6.0";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
+const LINKED_WEIGHT_OVERRIDE_STORAGE_KEY = "performance-calculators-linked-weight-overrides-v1";
 const NON_PERSISTED_FIELD_IDS = new Set(["scenario-name", "scenario-select"]);
+const LINKED_START_WEIGHT_FIELD_IDS = ["dpa-weight", "lrc-alt-weight", "eo-weight", "eo-div-weight"];
 
 const R_AIR = 287.05287;
 const GAMMA = 1.4;
@@ -45,6 +47,7 @@ const GO_AROUND_ANTI_ICE_ADJUSTMENT = {
 };
 const COG_LIMIT_WEIGHT_AXIS_1000KG = [108, 120, 140, 160, 180, 200, 220, 240];
 const COG_LIMIT_VALUES_PCT_MAC = [23.1, 24.7, 27.4, 29.8, 32.1, 34.4, 36.8, 37.5];
+let linkedWeightOverrides = readLinkedWeightOverrides();
 
 function parseNum(value) {
   const n = Number(value);
@@ -2633,6 +2636,106 @@ function writeNamedScenarios(scenarios) {
   }
 }
 
+function sanitizeLinkedWeightOverrides(raw) {
+  const next = {};
+  if (!raw || typeof raw !== "object") return next;
+  LINKED_START_WEIGHT_FIELD_IDS.forEach((id) => {
+    if (raw[id]) next[id] = true;
+  });
+  return next;
+}
+
+function readLinkedWeightOverrides() {
+  try {
+    const raw = localStorage.getItem(LINKED_WEIGHT_OVERRIDE_STORAGE_KEY);
+    if (!raw) return {};
+    return sanitizeLinkedWeightOverrides(JSON.parse(raw));
+  } catch {
+    return {};
+  }
+}
+
+function writeLinkedWeightOverrides(overrides) {
+  try {
+    localStorage.setItem(
+      LINKED_WEIGHT_OVERRIDE_STORAGE_KEY,
+      JSON.stringify(sanitizeLinkedWeightOverrides(overrides)),
+    );
+  } catch {
+    // Ignore storage failures and keep the app usable.
+  }
+}
+
+function setLinkedWeightOverride(fieldId, overridden) {
+  if (!LINKED_START_WEIGHT_FIELD_IDS.includes(fieldId)) return;
+  if (overridden) {
+    linkedWeightOverrides[fieldId] = true;
+  } else {
+    delete linkedWeightOverrides[fieldId];
+  }
+  writeLinkedWeightOverrides(linkedWeightOverrides);
+}
+
+function replaceLinkedWeightOverrides(overrides) {
+  linkedWeightOverrides = sanitizeLinkedWeightOverrides(overrides);
+  writeLinkedWeightOverrides(linkedWeightOverrides);
+}
+
+function getTripFuelEstimatedStartWeightT() {
+  const gnmEl = document.querySelector("#trip-gnm");
+  const windEl = document.querySelector("#trip-wind");
+  const weightEl = document.querySelector("#trip-weight");
+  if (!gnmEl || !windEl || !weightEl) return NaN;
+  if (fieldIsBlank(gnmEl.value) || fieldIsBlank(weightEl.value)) return NaN;
+
+  try {
+    const gnm = parseNum(gnmEl.value);
+    const wind = parseNumOrDefault(windEl.value, 0);
+    const weightT = parseNum(weightEl.value);
+    const perfAdjust = getGlobalPerfAdjust();
+    const tripCore = calculateTripFuelBase(gnm, wind, weightT, perfAdjust);
+    return weightT + tripCore.flightFuelKg / 1000;
+  } catch {
+    return NaN;
+  }
+}
+
+function syncLinkedStartWeights(startWeightT = getTripFuelEstimatedStartWeightT()) {
+  if (!Number.isFinite(startWeightT) || startWeightT <= 0) return;
+  const formatted = formatInputNumber(startWeightT, 1);
+  LINKED_START_WEIGHT_FIELD_IDS.forEach((fieldId) => {
+    const el = document.querySelector(`#${fieldId}`);
+    if (!el) return;
+    if (linkedWeightOverrides[fieldId]) return;
+    el.value = formatted;
+  });
+}
+
+function bindLinkedStartWeightFields() {
+  LINKED_START_WEIGHT_FIELD_IDS.forEach((fieldId) => {
+    const el = document.querySelector(`#${fieldId}`);
+    if (!el) return;
+
+    el.addEventListener("input", () => {
+      if (!fieldIsBlank(el.value)) {
+        setLinkedWeightOverride(fieldId, true);
+      }
+    });
+
+    el.addEventListener("change", () => {
+      const cleared = fieldIsBlank(el.value);
+      setLinkedWeightOverride(fieldId, !cleared);
+      if (cleared) {
+        syncLinkedStartWeights();
+        const form = el.closest("form");
+        if (form) {
+          form.dispatchEvent(new Event("submit"));
+        }
+      }
+    });
+  });
+}
+
 function setModeInputState(modeEl, valueEl) {
   const mode = String(modeEl.value || "kg");
   const isAuto = mode === "auto";
@@ -2985,6 +3088,7 @@ function bindTripFuel() {
         frfKg,
         reqAdditionalKg,
       });
+      syncLinkedStartWeights(weight + result.flightFuelKg / 1000);
 
       if (fieldIsBlank(windEl.value)) {
         windEl.value = formatInputNumber(0, 0);
@@ -4400,6 +4504,7 @@ function bindNamedScenarios() {
     scenarios[name] = {
       savedAt: new Date().toISOString(),
       state: captureInputState(),
+      linkedWeightOverrides,
     };
     writeNamedScenarios(scenarios);
     populateScenarioOptions(name);
@@ -4420,6 +4525,7 @@ function bindNamedScenarios() {
       return;
     }
     applyCapturedInputState(scenario.state);
+    replaceLinkedWeightOverrides(scenario.linkedWeightOverrides || {});
     persistInputState();
     recalculateAllForms();
     nameEl.value = name;
@@ -4585,6 +4691,7 @@ installCollapsiblePanels();
 restorePersistedInputState();
 installInputStatePersistence();
 installClickToClearInputs();
+bindLinkedStartWeightFields();
 bindTripFuel();
 bindDpaCalculator();
 bindLrcAltitudeLimits();
