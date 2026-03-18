@@ -1461,6 +1461,84 @@ function calculateTripFuelEnhanced({
   };
 }
 
+function solveTripFuelLandingWeightFromCurrentWeight(gnm, wind, currentWeightT, perfAdjust) {
+  if (!Number.isFinite(currentWeightT) || currentWeightT <= 0) {
+    throw new Error("Current weight must be > 0 t");
+  }
+
+  const minLandingWeightT = 120;
+  const maxLandingWeightT = 200;
+  const rootToleranceT = 0.001;
+  const iterationLimit = 60;
+
+  const residualForLandingWeight = (landingWeightT) => {
+    const core = calculateTripFuelBase(gnm, wind, landingWeightT, perfAdjust);
+    return {
+      core,
+      residualT: landingWeightT + core.flightFuelKg / 1000 - currentWeightT,
+    };
+  };
+
+  const lower = residualForLandingWeight(minLandingWeightT);
+  const upper = residualForLandingWeight(maxLandingWeightT);
+
+  if (Math.abs(lower.residualT) <= rootToleranceT) {
+    return {
+      currentWeightT,
+      solvedLandingWeightT: minLandingWeightT,
+      impliedFlightFuelBurnKg: lower.core.flightFuelKg,
+      core: lower.core,
+    };
+  }
+  if (Math.abs(upper.residualT) <= rootToleranceT) {
+    return {
+      currentWeightT,
+      solvedLandingWeightT: maxLandingWeightT,
+      impliedFlightFuelBurnKg: upper.core.flightFuelKg,
+      core: upper.core,
+    };
+  }
+
+  if (lower.residualT * upper.residualT > 0) {
+    throw new Error(
+      `No valid landing weight solution for current weight ${format(currentWeightT, 1)} t within table range (${format(minLandingWeightT, 0)}-${format(maxLandingWeightT, 0)} t)`,
+    );
+  }
+
+  let lowWeightT = minLandingWeightT;
+  let highWeightT = maxLandingWeightT;
+  let mid = lower;
+
+  for (let i = 0; i < iterationLimit; i += 1) {
+    const midWeightT = (lowWeightT + highWeightT) / 2;
+    mid = residualForLandingWeight(midWeightT);
+    if (Math.abs(mid.residualT) <= rootToleranceT || Math.abs(highWeightT - lowWeightT) <= rootToleranceT) {
+      return {
+        currentWeightT,
+        solvedLandingWeightT: midWeightT,
+        impliedFlightFuelBurnKg: mid.core.flightFuelKg,
+        core: mid.core,
+      };
+    }
+    if (lower.residualT * mid.residualT <= 0) {
+      highWeightT = midWeightT;
+      upper.residualT = mid.residualT;
+      upper.core = mid.core;
+    } else {
+      lowWeightT = midWeightT;
+      lower.residualT = mid.residualT;
+      lower.core = mid.core;
+    }
+  }
+
+  return {
+    currentWeightT,
+    solvedLandingWeightT: (lowWeightT + highWeightT) / 2,
+    impliedFlightFuelBurnKg: mid.core.flightFuelKg,
+    core: mid.core,
+  };
+}
+
 function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdjust, additionalHoldingMin, arrivalAllowanceMin = 0) {
   const tableSet = getDiversionBandTable(bandKey);
   if (!tableSet) {
@@ -2740,17 +2818,21 @@ function replaceLinkedWeightOverrides(overrides) {
 function getTripFuelEstimatedStartWeightT() {
   const gnmEl = document.querySelector("#trip-gnm");
   const windEl = document.querySelector("#trip-wind");
+  const weightModeEl = document.querySelector("#trip-weight-mode");
   const weightEl = document.querySelector("#trip-weight");
-  if (!gnmEl || !windEl || !weightEl) return NaN;
+  if (!gnmEl || !windEl || !weightModeEl || !weightEl) return NaN;
   if (fieldIsBlank(gnmEl.value) || fieldIsBlank(weightEl.value)) return NaN;
 
   try {
     const gnm = parseNum(gnmEl.value);
     const wind = parseNumOrDefault(windEl.value, 0);
-    const weightT = parseNum(weightEl.value);
+    const inputWeightT = parseNum(weightEl.value);
     const perfAdjust = getGlobalPerfAdjust();
-    const tripCore = calculateTripFuelBase(gnm, wind, weightT, perfAdjust);
-    return weightT + tripCore.flightFuelKg / 1000;
+    if (String(weightModeEl.value || "landing") === "current") {
+      return solveTripFuelLandingWeightFromCurrentWeight(gnm, wind, inputWeightT, perfAdjust).currentWeightT;
+    }
+    const tripCore = calculateTripFuelBase(gnm, wind, inputWeightT, perfAdjust);
+    return inputWeightT + tripCore.flightFuelKg / 1000;
   } catch {
     return NaN;
   }
@@ -2988,6 +3070,7 @@ function bindTripFuel() {
 
   const gnmEl = document.querySelector("#trip-gnm");
   const windEl = document.querySelector("#trip-wind");
+  const weightModeEl = document.querySelector("#trip-weight-mode");
   const weightEl = document.querySelector("#trip-weight");
   const taxiEl = document.querySelector("#trip-taxi");
   const appEl = document.querySelector("#trip-app");
@@ -3011,6 +3094,7 @@ function bindTripFuel() {
   if (
     !gnmEl ||
     !windEl ||
+    !weightModeEl ||
     !weightEl ||
     !taxiEl ||
     !appEl ||
@@ -3038,9 +3122,15 @@ function bindTripFuel() {
     setModeInputState(contModeEl, contEl);
     setModeInputState(frfModeEl, frfEl);
     syncModeButtons.forEach((syncButtons) => syncButtons());
+    const isCurrentWeightMode = String(weightModeEl.value || "landing") === "current";
+    const weightLabelEl = document.querySelector("#trip-weight-label");
+    if (weightLabelEl) {
+      weightLabelEl.textContent = isCurrentWeightMode ? "Current Weight (t)" : "Landing Weight (t)";
+    }
   };
 
   const modeEls = [
+    weightModeEl,
     arrivalFuelModeEl,
     wxHoldModeEl,
     sngRwyHoldModeEl,
@@ -3064,7 +3154,11 @@ function bindTripFuel() {
     if (
       missingFieldsBanner(out, [
         fieldIsBlank(gnmEl.value) ? "Ground Distance (GNM)" : "",
-        fieldIsBlank(weightEl.value) ? "Landing Weight" : "",
+        fieldIsBlank(weightEl.value)
+          ? String(weightModeEl.value || "landing") === "current"
+            ? "Current Weight"
+            : "Landing Weight"
+          : "",
       ])
     ) {
       return;
@@ -3072,18 +3166,29 @@ function bindTripFuel() {
     try {
       const gnm = parseNum(gnmEl.value);
       const wind = parseNumOrDefault(windEl.value, 0);
-      const weight = parseNum(weightEl.value);
+      const inputWeightT = parseNum(weightEl.value);
+      const weightMode = String(weightModeEl.value || "landing");
       const perfAdjust = getGlobalPerfAdjust();
+      const tripWeightContext =
+        weightMode === "current"
+          ? solveTripFuelLandingWeightFromCurrentWeight(gnm, wind, inputWeightT, perfAdjust)
+          : {
+              currentWeightT: NaN,
+              solvedLandingWeightT: inputWeightT,
+              impliedFlightFuelBurnKg: NaN,
+              core: null,
+            };
+      const landingWeightT = tripWeightContext.solvedLandingWeightT;
 
       const taxiKg = resolveKgInput("Taxi Fuel", taxiEl);
       const appKg = resolveKgInput("Approach Fuel", appEl);
 
-      const frfFuelFlowKgHr = getHoldFuelFlowKgHr(weight, FRF_HOLD_ALTITUDE_FT, perfAdjust);
-      const hold20000FuelFlowKgHr = getHoldFuelFlowKgHr(weight, ADDITIONAL_HOLD_ALTITUDE_FT, perfAdjust);
+      const frfFuelFlowKgHr = getHoldFuelFlowKgHr(landingWeightT, FRF_HOLD_ALTITUDE_FT, perfAdjust);
+      const hold20000FuelFlowKgHr = getHoldFuelFlowKgHr(landingWeightT, ADDITIONAL_HOLD_ALTITUDE_FT, perfAdjust);
       const autoBase = calculateTripFuelEnhanced({
         gnm,
         wind,
-        weight,
+        weight: landingWeightT,
         perfAdjust,
         taxiKg,
         appKg,
@@ -3143,7 +3248,7 @@ function bindTripFuel() {
       const result = calculateTripFuelEnhanced({
         gnm,
         wind,
-        weight,
+        weight: landingWeightT,
         perfAdjust,
         taxiKg,
         appKg,
@@ -3156,7 +3261,7 @@ function bindTripFuel() {
         frfKg,
         reqAdditionalKg,
       });
-      syncLinkedStartWeights(weight + result.flightFuelKg / 1000);
+      syncLinkedStartWeights(weightMode === "current" ? tripWeightContext.currentWeightT : landingWeightT + result.flightFuelKg / 1000);
 
       if (fieldIsBlank(windEl.value)) {
         windEl.value = formatInputNumber(0, 0);
@@ -3164,6 +3269,13 @@ function bindTripFuel() {
 
       const rows = [
         ["Air Distance (ANM)", `${format(result.anmDisplay, 0)} nm`],
+        ...(weightMode === "current"
+          ? [
+              ["Current Weight", `${format(tripWeightContext.currentWeightT, 1)} t`],
+              ["Solved Landing Weight", `${format(tripWeightContext.solvedLandingWeightT, 1)} t`],
+              ["Implied Flight Fuel Burn", `${format(tripWeightContext.impliedFlightFuelBurnKg, 0)} kg`],
+            ]
+          : []),
         ["Taxi Fuel", `${format(result.taxiKg, 0)} kg`],
         ["Flight Fuel", `${format(result.flightFuelKg, 0)} kg`],
         ["FRF", `${format(result.frfKg, 0)} kg`],
