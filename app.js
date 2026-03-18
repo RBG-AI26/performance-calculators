@@ -13,8 +13,10 @@ const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
 const LINKED_WEIGHT_OVERRIDE_STORAGE_KEY = "performance-calculators-linked-weight-overrides-v1";
-const NON_PERSISTED_FIELD_IDS = new Set(["scenario-name", "scenario-select"]);
+const THEME_STORAGE_KEY = "performance-calculators-theme-v1";
+const NON_PERSISTED_FIELD_IDS = new Set(["scenario-name", "scenario-select", "theme-mode"]);
 const LINKED_START_WEIGHT_FIELD_IDS = ["dpa-weight", "lrc-alt-weight", "eo-weight", "eo-div-weight", "cog-weight"];
+const DEFAULT_THEME_MODE = "auto";
 
 const R_AIR = 287.05287;
 const GAMMA = 1.4;
@@ -242,6 +244,57 @@ function getGlobalPerfAdjust() {
     throw new Error("Global flight plan performance adjustment is invalid");
   }
   return perfAdjustPercent / 100;
+}
+
+function sanitizeThemeMode(mode) {
+  return ["day", "night", "auto"].includes(mode) ? mode : DEFAULT_THEME_MODE;
+}
+
+function readThemeMode() {
+  try {
+    return sanitizeThemeMode(localStorage.getItem(THEME_STORAGE_KEY));
+  } catch {
+    return DEFAULT_THEME_MODE;
+  }
+}
+
+function writeThemeMode(mode) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, sanitizeThemeMode(mode));
+  } catch {
+    // Ignore storage failures and keep the app usable.
+  }
+}
+
+function resolveAppliedTheme(mode) {
+  const normalized = sanitizeThemeMode(mode);
+  if (normalized === "auto") {
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "night" : "day";
+  }
+  return normalized;
+}
+
+function applyTheme(mode = readThemeMode()) {
+  const normalized = sanitizeThemeMode(mode);
+  const appliedTheme = resolveAppliedTheme(normalized);
+  const rootEl = document.documentElement;
+  if (rootEl?.dataset) {
+    rootEl.dataset.themeMode = normalized;
+    rootEl.dataset.theme = appliedTheme;
+  }
+
+  const themeEl = document.querySelector("#theme-mode");
+  if (themeEl && themeEl.value !== normalized) {
+    themeEl.value = normalized;
+  }
+
+  const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeColorMeta && rootEl && typeof getComputedStyle === "function") {
+    const cssValue = getComputedStyle(rootEl).getPropertyValue("--theme-color").trim();
+    if (cssValue) {
+      themeColorMeta.setAttribute("content", cssValue);
+    }
+  }
 }
 
 function format(value, digits = 2) {
@@ -4471,9 +4524,36 @@ function bindCogLimit() {
 
 function bindGlobalSettings() {
   const globalPerfEl = document.querySelector("#global-perf-adjust");
+  const themeEl = document.querySelector("#theme-mode");
   if (!globalPerfEl) return;
 
   globalPerfEl.addEventListener("change", recalculateAllForms);
+
+  if (themeEl) {
+    themeEl.value = readThemeMode();
+    themeEl.addEventListener("change", () => {
+      const mode = sanitizeThemeMode(themeEl.value);
+      writeThemeMode(mode);
+      applyTheme(mode);
+    });
+  }
+}
+
+function bindThemeAutoUpdates() {
+  const mediaQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+  if (!mediaQuery) return;
+
+  const syncAutoTheme = () => {
+    if (readThemeMode() === "auto") {
+      applyTheme("auto");
+    }
+  };
+
+  if (typeof mediaQuery.addEventListener === "function") {
+    mediaQuery.addEventListener("change", syncAutoTheme);
+  } else if (typeof mediaQuery.addListener === "function") {
+    mediaQuery.addListener(syncAutoTheme);
+  }
 }
 
 function bindNamedScenarios() {
@@ -4799,6 +4879,7 @@ function setAppVersionLabel() {
   }
 }
 
+applyTheme();
 setAppVersionLabel();
 setAltFlRangeLabels();
 installCollapsiblePanels();
@@ -4817,5 +4898,6 @@ bindLoseTime();
 bindConversion();
 bindCogLimit();
 bindGlobalSettings();
+bindThemeAutoUpdates();
 bindNamedScenarios();
 registerServiceWorker();
