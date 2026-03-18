@@ -3023,7 +3023,7 @@ function bindTripFuel() {
       const perfAdjust = getGlobalPerfAdjust();
 
       const taxiKg = resolveKgInput("Taxi Fuel", taxiEl);
-      const appKg = resolveKgInput("App", appEl);
+      const appKg = resolveKgInput("Approach Fuel", appEl);
 
       const frfFuelFlowKgHr = getHoldFuelFlowKgHr(weight, FRF_HOLD_ALTITUDE_FT, perfAdjust);
       const hold20000FuelFlowKgHr = getHoldFuelFlowKgHr(weight, ADDITIONAL_HOLD_ALTITUDE_FT, perfAdjust);
@@ -3121,7 +3121,7 @@ function bindTripFuel() {
         ["Divn/NDA", `${format(result.divnNdaKg, 0)} kg`],
         ["Div Hold", `${format(result.divHoldKg, 0)} kg`],
         ["Rqd Additional/Other Hold", `${format(result.reqAdditionalKg, 0)} kg`],
-        ["App", `${format(result.appKg, 0)} kg`],
+        ["Approach Fuel", `${format(result.appKg, 0)} kg`],
         ["Total Fuel Required", `${format(result.totalFuelKg, 0)} kg`],
         ["Time", formatMinutes(result.timeMinutes)],
       ];
