@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.6.0";
+const APP_VERSION = "v7.7.0";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -1481,6 +1481,8 @@ function solveTripFuelLandingWeightFromCurrentWeight(gnm, wind, currentWeightT, 
 
   const lower = residualForLandingWeight(minLandingWeightT);
   const upper = residualForLandingWeight(maxLandingWeightT);
+  const minCurrentWeightT = minLandingWeightT + lower.core.flightFuelKg / 1000;
+  const maxCurrentWeightT = maxLandingWeightT + upper.core.flightFuelKg / 1000;
 
   if (Math.abs(lower.residualT) <= rootToleranceT) {
     return {
@@ -1501,7 +1503,7 @@ function solveTripFuelLandingWeightFromCurrentWeight(gnm, wind, currentWeightT, 
 
   if (lower.residualT * upper.residualT > 0) {
     throw new Error(
-      `No valid landing weight solution for current weight ${format(currentWeightT, 1)} t within table range (${format(minLandingWeightT, 0)}-${format(maxLandingWeightT, 0)} t)`,
+      `No valid current-weight solution for this route. Current weight must be between ${format(minCurrentWeightT, 1)} and ${format(maxCurrentWeightT, 1)} t`,
     );
   }
 

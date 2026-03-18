@@ -140,6 +140,14 @@ assertApprox(trip.totalFuelKg, 9213.85, 1e-6, "Trip fuel total fuel");
 assertApprox(trip.timeMinutes, 74.8968, 1e-6, "Trip fuel time");
 assert.equal(trip.suggestedAltFt, 39710, "Trip fuel suggested altitude");
 
+const tripCurrentWeight = context.solveTripFuelLandingWeightFromCurrentWeight(2000, 10, 200, 0);
+assertApprox(tripCurrentWeight.solvedLandingWeightT, 178.504638671875, 1e-9, "Trip current-weight solved landing weight");
+assertApprox(tripCurrentWeight.impliedFlightFuelBurnKg, 21495.412384033207, 1e-6, "Trip current-weight implied flight fuel");
+
+const tripCurrentWeightLong = context.solveTripFuelLandingWeightFromCurrentWeight(7800, -10, 239.3, 0);
+assertApprox(tripCurrentWeightLong.solvedLandingWeightT, 154.43115234375, 1e-9, "Trip current-weight long solved landing weight");
+assertApprox(tripCurrentWeightLong.impliedFlightFuelBurnKg, 84868.72490692139, 1e-6, "Trip current-weight long implied flight fuel");
+
 const diversionLow = context.diversionLrcFuelByBand("low", 400, -50, 28000, 180, 0, 0, 0);
 assertApprox(diversionLow.adjustedFuelKg, 4639.375, 1e-6, "Low diversion flight fuel");
 assertApprox(diversionLow.reserveCalcWeightT, 175.160625, 1e-6, "Low diversion landing weight");
