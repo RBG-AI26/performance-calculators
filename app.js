@@ -4481,9 +4481,12 @@ function bindNamedScenarios() {
   const selectEl = document.querySelector("#scenario-select");
   const saveBtn = document.querySelector("#scenario-save");
   const loadBtn = document.querySelector("#scenario-load");
+  const exportBtn = document.querySelector("#scenario-export");
+  const importBtn = document.querySelector("#scenario-import");
+  const importFileEl = document.querySelector("#scenario-import-file");
   const deleteBtn = document.querySelector("#scenario-delete");
   const statusEl = document.querySelector("#scenario-status");
-  if (!nameEl || !selectEl || !saveBtn || !loadBtn || !deleteBtn || !statusEl) return;
+  if (!nameEl || !selectEl || !saveBtn || !loadBtn || !exportBtn || !importBtn || !importFileEl || !deleteBtn || !statusEl) return;
 
   const setStatus = (message = "", tone = "") => {
     statusEl.textContent = message;
@@ -4509,6 +4512,19 @@ function bindNamedScenarios() {
       selectEl.appendChild(option);
     });
   };
+
+  const getSelectedScenarioName = () => String(selectEl.value || nameEl.value || "").trim();
+  const sanitizeScenarioFileName = (name) =>
+    String(name || "scenario")
+      .trim()
+      .replace(/[^a-z0-9-_]+/gi, "-")
+      .replace(/^-+|-+$/g, "") || "scenario";
+
+  const isValidScenarioRecord = (scenario) =>
+    !!scenario &&
+    typeof scenario === "object" &&
+    scenario.state &&
+    typeof scenario.state === "object";
 
   saveBtn.addEventListener("click", () => {
     const name = String(nameEl.value || "").trim();
@@ -4546,6 +4562,88 @@ function bindNamedScenarios() {
     recalculateAllForms();
     nameEl.value = name;
     setStatus(`Loaded scenario: ${name}`, "success");
+  });
+
+  exportBtn.addEventListener("click", () => {
+    const name = getSelectedScenarioName();
+    if (!name) {
+      setStatus("Choose a saved scenario to export.", "error");
+      return;
+    }
+    const scenario = readNamedScenarios()[name];
+    if (!isValidScenarioRecord(scenario)) {
+      setStatus(`Scenario not found: ${name}`, "error");
+      populateScenarioOptions();
+      return;
+    }
+
+    const exportPayload = {
+      type: "performance-calculators-scenario",
+      version: 1,
+      appVersion: APP_VERSION,
+      exportedAt: new Date().toISOString(),
+      scenario: {
+        name,
+        savedAt: scenario.savedAt || "",
+        state: scenario.state,
+        linkedWeightOverrides: sanitizeLinkedWeightOverrides(scenario.linkedWeightOverrides || {}),
+      },
+    };
+
+    try {
+      const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${sanitizeScenarioFileName(name)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setStatus(`Exported scenario: ${name}`, "success");
+    } catch {
+      setStatus("Unable to export scenario.", "error");
+    }
+  });
+
+  importBtn.addEventListener("click", () => {
+    importFileEl.click();
+  });
+
+  importFileEl.addEventListener("change", async () => {
+    const [file] = Array.from(importFileEl.files || []);
+    if (!file) return;
+
+    try {
+      const raw = await file.text();
+      const payload = JSON.parse(raw);
+      const importedScenario = payload?.scenario;
+      const importedName = String(importedScenario?.name || "").trim();
+      if (
+        payload?.type !== "performance-calculators-scenario" ||
+        payload?.version !== 1 ||
+        !importedName ||
+        !isValidScenarioRecord(importedScenario)
+      ) {
+        throw new Error("Invalid scenario file");
+      }
+
+      const scenarios = readNamedScenarios();
+      scenarios[importedName] = {
+        savedAt: importedScenario.savedAt || new Date().toISOString(),
+        state: importedScenario.state,
+        linkedWeightOverrides: sanitizeLinkedWeightOverrides(importedScenario.linkedWeightOverrides || {}),
+      };
+      writeNamedScenarios(scenarios);
+      populateScenarioOptions(importedName);
+      selectEl.value = importedName;
+      nameEl.value = importedName;
+      setStatus(`Imported scenario: ${importedName}`, "success");
+    } catch (error) {
+      setStatus(error?.message === "Invalid scenario file" ? error.message : "Unable to import scenario file.", "error");
+    } finally {
+      importFileEl.value = "";
+    }
   });
 
   deleteBtn.addEventListener("click", () => {
