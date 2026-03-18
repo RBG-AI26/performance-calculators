@@ -265,9 +265,22 @@ label {
   align-items: start;
 }
 
+.trip-fuel-form {
+  display: grid;
+  gap: 0.8rem;
+  align-items: start;
+}
+
 .dpa-core-inputs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.trip-fuel-core-inputs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.65rem;
   align-items: end;
 }
@@ -331,6 +344,22 @@ label {
 }
 
 .dpa-auto-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.85rem;
+  min-width: 3.05rem;
+  padding: 0 0.5rem;
+  border-radius: 10px;
+  border: 1px solid #c9d9e7;
+  background: #edf4fa;
+  color: #4a657c;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.dpa-static-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -576,6 +605,10 @@ button:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .trip-fuel-core-inputs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dpa-entry-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -620,6 +653,7 @@ button:hover {
   }
 
   .dpa-core-inputs,
+  .trip-fuel-core-inputs,
   .dpa-entry-list {
     grid-template-columns: 1fr;
   }
