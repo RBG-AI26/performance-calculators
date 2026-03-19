@@ -2652,7 +2652,7 @@ function renderRows(target, rows) {
       if (k === "__warning__") {
         return `<div class="result-warning">${v}</div>`;
       }
-      const emphasizedRows = new Set(["Inbound Leg Time", "DPA Total", "Total Fuel Required"]);
+      const emphasizedRows = new Set(["Inbound Leg Time", "DPA Total", "Total Fuel Required", "Required Weight"]);
       const stackedRows = new Set(["Estimated Step Climb Triggers", "Step Climb Plan", "Option B Speed Reduction Start"]);
       const rowClasses = ["result-row"];
       if (emphasizedRows.has(k)) rowClasses.push("result-row-emphasis");
@@ -4570,7 +4570,7 @@ function bindGoAround() {
         ...(result.mode === "target"
           ? [
               ["Target Gradient", `${format(result.targetGradientPct, 1)} %`],
-              ["Required Landing Weight", `${format(result.inputsUsed.landingWeightT, 1)} t`],
+              ["Required Weight", `${format(result.inputsUsed.landingWeightT, 1)} t`],
             ]
           : []),
         ["Reference Gradient", `${format(result.referenceGradientPct, 1)} %`],
