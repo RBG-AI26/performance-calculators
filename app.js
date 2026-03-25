@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.7.2";
+const APP_VERSION = "v7.8.0";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -43,6 +43,10 @@ const ADDITIONAL_HOLD_ALTITUDE_FT = 20000;
 const ENROUTE_HOLD_SPEED_FUEL_FACTOR = 0.95;
 const LOSE_TIME_CLIMB_RATE_FPM = 1000;
 const LOSE_TIME_DESCENT_RATE_FPM = 1000;
+const LOSE_TIME_REFERENCE_DESCENT_ALT_AXIS_FT = [0, 25000, 27000, 29000, 31000, 33000, 35000, 37000, 39000, 41000, 43000];
+const LOSE_TIME_REFERENCE_DESCENT_DISTANCE_NM = [0, 94, 101, 109, 116, 123, 129, 135, 142, 150, 156];
+const LOSE_TIME_REFERENCE_DESCENT_TIME_MIN = [0, 20, 21, 22, 23, 23, 24, 25, 26, 27, 28];
+const LOSE_TIME_MIN_OPTION_D_MACH = 0.4;
 const GO_AROUND_ANTI_ICE_ADJUSTMENT = {
   engineOn: { oatLe8: -0.1, oatGt8Le20: -0.2 },
   engineWingOn: { oatLe8: -0.1, oatGt8Le20: -0.2 },
@@ -2350,6 +2354,370 @@ function calculateRequiredSpeedToMeetFixTime({ distanceNm, targetFixTimeMin, sta
   };
 }
 
+function getReferenceDescentMetricAtAltitudeFt(altitudeFt, metricValues, label) {
+  return interpolateFromAvailablePointsClamped(
+    LOSE_TIME_REFERENCE_DESCENT_ALT_AXIS_FT,
+    metricValues,
+    clamp(altitudeFt, 0, LOSE_TIME_REFERENCE_DESCENT_ALT_AXIS_FT[LOSE_TIME_REFERENCE_DESCENT_ALT_AXIS_FT.length - 1]),
+    label,
+  );
+}
+
+function getReferenceDescentProfileSegment(startAltitudeFt, endAltitudeFt) {
+  const startFt = Math.max(0, startAltitudeFt);
+  const endFt = Math.max(0, endAltitudeFt);
+  if (endFt > startFt) {
+    throw new Error("Fix crossing altitude must be at or below the descent start altitude");
+  }
+  const startDistanceNm = getReferenceDescentMetricAtAltitudeFt(
+    startFt,
+    LOSE_TIME_REFERENCE_DESCENT_DISTANCE_NM,
+    "reference descent distance",
+  );
+  const endDistanceNm = getReferenceDescentMetricAtAltitudeFt(
+    endFt,
+    LOSE_TIME_REFERENCE_DESCENT_DISTANCE_NM,
+    "reference descent distance",
+  );
+  const startTimeMin = getReferenceDescentMetricAtAltitudeFt(
+    startFt,
+    LOSE_TIME_REFERENCE_DESCENT_TIME_MIN,
+    "reference descent time",
+  );
+  const endTimeMin = getReferenceDescentMetricAtAltitudeFt(
+    endFt,
+    LOSE_TIME_REFERENCE_DESCENT_TIME_MIN,
+    "reference descent time",
+  );
+
+  return {
+    distanceNm: Math.max(0, startDistanceNm - endDistanceNm),
+    timeMin: Math.max(0, startTimeMin - endTimeMin),
+  };
+}
+
+function getLinearWindAtAltitudeKt(cruiseWindKt, startAltitudeFt, altitudeFt) {
+  if (!Number.isFinite(cruiseWindKt)) throw new Error("Wind is invalid");
+  if (!Number.isFinite(startAltitudeFt) || startAltitudeFt <= 0) return 0;
+  const scale = clamp(altitudeFt / startAltitudeFt, 0, 1);
+  return cruiseWindKt * scale;
+}
+
+function getTasAtAltitudeForMach(altitudeFt, mach) {
+  const atmosphere = atmosphereFromPressureAltitude({
+    pressureAltitudeFt: altitudeFt,
+    tempMode: "isa-dev",
+    isaDeviationC: 0,
+    oatC: 0,
+  });
+  return {
+    atmosphere,
+    tasKt: mach * atmosphere.speedOfSoundMps * MPS_TO_KT,
+  };
+}
+
+function getTasAtAltitudeForIas(altitudeFt, iasKt) {
+  const atmosphere = atmosphereFromPressureAltitude({
+    pressureAltitudeFt: altitudeFt,
+    tempMode: "isa-dev",
+    isaDeviationC: 0,
+    oatC: 0,
+  });
+  const converted = iasToMachTas({
+    iasKt,
+    pressurePa: atmosphere.pressurePa,
+    speedOfSoundMps: atmosphere.speedOfSoundMps,
+  });
+  return {
+    atmosphere,
+    tasKt: converted.tasKt,
+    mach: converted.mach,
+  };
+}
+
+function findMachIasCrossoverAltitudeFt(startAltitudeFt, mach, targetIasKt) {
+  const getEquivalentIasAtAltitude = (altitudeFt) => {
+    const atmosphere = atmosphereFromPressureAltitude({
+      pressureAltitudeFt: altitudeFt,
+      tempMode: "isa-dev",
+      isaDeviationC: 0,
+      oatC: 0,
+    });
+    return machToIasTas({
+      mach,
+      pressurePa: atmosphere.pressurePa,
+      speedOfSoundMps: atmosphere.speedOfSoundMps,
+    }).iasKt;
+  };
+
+  const startEquivalentIasKt = getEquivalentIasAtAltitude(startAltitudeFt);
+  if (startEquivalentIasKt >= targetIasKt) {
+    return startAltitudeFt;
+  }
+
+  const seaLevelEquivalentIasKt = getEquivalentIasAtAltitude(0);
+  if (seaLevelEquivalentIasKt <= targetIasKt) {
+    return 0;
+  }
+
+  let lowAltitudeFt = 0;
+  let highAltitudeFt = startAltitudeFt;
+  for (let i = 0; i < 32; i += 1) {
+    const midAltitudeFt = (lowAltitudeFt + highAltitudeFt) / 2;
+    const midEquivalentIasKt = getEquivalentIasAtAltitude(midAltitudeFt);
+    if (midEquivalentIasKt >= targetIasKt) {
+      lowAltitudeFt = midAltitudeFt;
+    } else {
+      highAltitudeFt = midAltitudeFt;
+    }
+  }
+  return (lowAltitudeFt + highAltitudeFt) / 2;
+}
+
+function simulateCruiseDescentTimeToFix({
+  distanceNm,
+  startFl,
+  cruiseWindKt,
+  distanceToTodNm,
+  fixCrossingAltitudeFt,
+  descentIasKt,
+  cruiseMach,
+}) {
+  if (!Number.isFinite(distanceNm) || distanceNm <= 0) {
+    throw new Error("Distance to fix must be > 0 NM");
+  }
+  if (!Number.isFinite(startFl) || startFl <= 0) {
+    throw new Error("Current FL must be > 0");
+  }
+  if (!Number.isFinite(cruiseWindKt)) {
+    throw new Error("Wind is invalid");
+  }
+  if (!Number.isFinite(distanceToTodNm) || distanceToTodNm < 0) {
+    throw new Error("Distance to TOD must be >= 0 NM");
+  }
+  if (!Number.isFinite(fixCrossingAltitudeFt) || fixCrossingAltitudeFt < 0) {
+    throw new Error("Fix crossing altitude must be >= 0 ft");
+  }
+  if (!Number.isFinite(descentIasKt) || descentIasKt <= 0) {
+    throw new Error("Descent IAS must be > 0 kt");
+  }
+  if (!Number.isFinite(cruiseMach) || cruiseMach <= 0) {
+    throw new Error("Cruise Mach is invalid");
+  }
+
+  const startAltitudeFt = startFl * 100;
+  const cruiseDistanceUsedNm = Math.min(distanceNm, distanceToTodNm);
+  const descentDistanceUsedNm = Math.max(0, distanceNm - cruiseDistanceUsedNm);
+  const lowAltitudeIasKt = Math.min(descentIasKt, 250);
+
+  if (descentDistanceUsedNm <= 1e-7) {
+    if (fixCrossingAltitudeFt < startAltitudeFt - 1) {
+      throw new Error("TOD is beyond the fix, so fix crossing altitude must match the current altitude");
+    }
+    const cruiseTasKt = getTasAtAltitudeForMach(startAltitudeFt, cruiseMach).tasKt;
+    const cruiseGsKt = cruiseTasKt + cruiseWindKt;
+    if (cruiseGsKt <= 0) {
+      throw new Error("Cruise ground speed <= 0 kt");
+    }
+    return {
+      cruiseDistanceNm: cruiseDistanceUsedNm,
+      descentDistanceNm: 0,
+      cruiseTimeMin: (cruiseDistanceUsedNm / cruiseGsKt) * 60,
+      descentTimeMin: 0,
+      totalTimeMin: (cruiseDistanceUsedNm / cruiseGsKt) * 60,
+      crossoverAltitudeFt: startAltitudeFt,
+      descentIasAbove10kKt: descentIasKt,
+      descentIasBelow10kKt: lowAltitudeIasKt,
+      referenceDescentDistanceNm: 0,
+      referenceDescentTimeMin: 0,
+      machSegmentDistanceNm: 0,
+      machSegmentTimeMin: 0,
+      iasHighSegmentDistanceNm: 0,
+      iasHighSegmentTimeMin: 0,
+      iasLowSegmentDistanceNm: 0,
+      iasLowSegmentTimeMin: 0,
+      cruiseMach,
+    };
+  }
+
+  if (fixCrossingAltitudeFt >= startAltitudeFt - 1) {
+    throw new Error("Fix crossing altitude must be below the current altitude when TOD is before the fix");
+  }
+
+  const referenceDescent = getReferenceDescentProfileSegment(startAltitudeFt, fixCrossingAltitudeFt);
+  const cruiseTasKt = getTasAtAltitudeForMach(startAltitudeFt, cruiseMach).tasKt;
+  const cruiseGsKt = cruiseTasKt + cruiseWindKt;
+  if (cruiseGsKt <= 0) {
+    throw new Error("Cruise ground speed <= 0 kt");
+  }
+  const cruiseTimeMin = (cruiseDistanceUsedNm / cruiseGsKt) * 60;
+  const crossoverAltitudeFt = findMachIasCrossoverAltitudeFt(startAltitudeFt, cruiseMach, descentIasKt);
+
+  const totalAltitudeDeltaFt = startAltitudeFt - fixCrossingAltitudeFt;
+  let descentTimeMin = 0;
+  let machSegmentDistanceNm = 0;
+  let machSegmentTimeMin = 0;
+  let iasHighSegmentDistanceNm = 0;
+  let iasHighSegmentTimeMin = 0;
+  let iasLowSegmentDistanceNm = 0;
+  let iasLowSegmentTimeMin = 0;
+
+  const integrationStepNm = Math.min(2, Math.max(descentDistanceUsedNm / 120, 0.5));
+  for (let travelledNm = 0; travelledNm < descentDistanceUsedNm - 1e-9; ) {
+    const stepNm = Math.min(integrationStepNm, descentDistanceUsedNm - travelledNm);
+    const midProgress = (travelledNm + stepNm / 2) / descentDistanceUsedNm;
+    const altitudeFt = startAltitudeFt - totalAltitudeDeltaFt * midProgress;
+    const localWindKt = getLinearWindAtAltitudeKt(cruiseWindKt, startAltitudeFt, altitudeFt);
+
+    let tasKt;
+    if (altitudeFt > 10000 && altitudeFt > crossoverAltitudeFt) {
+      tasKt = getTasAtAltitudeForMach(altitudeFt, cruiseMach).tasKt;
+      machSegmentDistanceNm += stepNm;
+    } else if (altitudeFt > 10000) {
+      tasKt = getTasAtAltitudeForIas(altitudeFt, descentIasKt).tasKt;
+      iasHighSegmentDistanceNm += stepNm;
+    } else {
+      tasKt = getTasAtAltitudeForIas(altitudeFt, lowAltitudeIasKt).tasKt;
+      iasLowSegmentDistanceNm += stepNm;
+    }
+
+    const gsKt = tasKt + localWindKt;
+    if (gsKt <= 0) {
+      throw new Error("Descent ground speed <= 0 kt");
+    }
+    const stepTimeMin = (stepNm / gsKt) * 60;
+    descentTimeMin += stepTimeMin;
+    if (altitudeFt > 10000 && altitudeFt > crossoverAltitudeFt) {
+      machSegmentTimeMin += stepTimeMin;
+    } else if (altitudeFt > 10000) {
+      iasHighSegmentTimeMin += stepTimeMin;
+    } else {
+      iasLowSegmentTimeMin += stepTimeMin;
+    }
+    travelledNm += stepNm;
+  }
+
+  return {
+    cruiseDistanceNm: cruiseDistanceUsedNm,
+    descentDistanceNm: descentDistanceUsedNm,
+    cruiseTimeMin,
+    descentTimeMin,
+    totalTimeMin: cruiseTimeMin + descentTimeMin,
+    crossoverAltitudeFt,
+    descentIasAbove10kKt: descentIasKt,
+    descentIasBelow10kKt: lowAltitudeIasKt,
+    referenceDescentDistanceNm: referenceDescent.distanceNm,
+    referenceDescentTimeMin: referenceDescent.timeMin,
+    machSegmentDistanceNm,
+    machSegmentTimeMin,
+    iasHighSegmentDistanceNm,
+    iasHighSegmentTimeMin,
+    iasLowSegmentDistanceNm,
+    iasLowSegmentTimeMin,
+    cruiseMach,
+  };
+}
+
+function buildLoseTimeCruiseDescentOption({
+  distanceNm,
+  startWeightT,
+  startFl,
+  requiredDelayMin,
+  cruiseWindKt,
+  distanceToTodNm,
+  fixCrossingAltitudeFt,
+  descentIasKt,
+  perfAdjust,
+}) {
+  if (!Number.isFinite(startWeightT) || startWeightT <= 0) {
+    throw new Error("Current weight must be > 0");
+  }
+  if (!Number.isFinite(perfAdjust)) {
+    throw new Error("Performance adjustment is invalid");
+  }
+
+  const baselineCruise = getLrcCruiseState(startWeightT, startFl, cruiseWindKt, perfAdjust);
+  const baseline = simulateCruiseDescentTimeToFix({
+    distanceNm,
+    startFl,
+    cruiseWindKt,
+    distanceToTodNm,
+    fixCrossingAltitudeFt,
+    descentIasKt,
+    cruiseMach: baselineCruise.mach,
+  });
+  const targetTimeMin = baseline.totalTimeMin + requiredDelayMin;
+
+  if (requiredDelayMin <= 1e-9) {
+    return {
+      baseline,
+      solution: baseline,
+      targetTimeMin,
+      residualHoldMin: 0,
+      requiredMach: baselineCruise.mach,
+    };
+  }
+
+  const minimumMach = Math.min(LOSE_TIME_MIN_OPTION_D_MACH, baselineCruise.mach);
+  const minimumMachSolution = simulateCruiseDescentTimeToFix({
+    distanceNm,
+    startFl,
+    cruiseWindKt,
+    distanceToTodNm,
+    fixCrossingAltitudeFt,
+    descentIasKt,
+    cruiseMach: minimumMach,
+  });
+
+  if (minimumMachSolution.totalTimeMin < targetTimeMin) {
+    return {
+      baseline,
+      solution: minimumMachSolution,
+      targetTimeMin,
+      residualHoldMin: targetTimeMin - minimumMachSolution.totalTimeMin,
+      requiredMach: minimumMach,
+    };
+  }
+
+  let lowMach = minimumMach;
+  let highMach = baselineCruise.mach;
+  let lowSolution = minimumMachSolution;
+  let highSolution = baseline;
+
+  for (let i = 0; i < 32; i += 1) {
+    const midMach = (lowMach + highMach) / 2;
+    const midSolution = simulateCruiseDescentTimeToFix({
+      distanceNm,
+      startFl,
+      cruiseWindKt,
+      distanceToTodNm,
+      fixCrossingAltitudeFt,
+      descentIasKt,
+      cruiseMach: midMach,
+    });
+    if (midSolution.totalTimeMin > targetTimeMin) {
+      lowMach = midMach;
+      lowSolution = midSolution;
+    } else {
+      highMach = midMach;
+      highSolution = midSolution;
+    }
+  }
+
+  const solution =
+    Math.abs(lowSolution.totalTimeMin - targetTimeMin) <= Math.abs(highSolution.totalTimeMin - targetTimeMin)
+      ? lowSolution
+      : highSolution;
+
+  return {
+    baseline,
+    solution,
+    targetTimeMin,
+    residualHoldMin: 0,
+    requiredMach: solution.cruiseMach,
+  };
+}
+
 function buildLoseTimeComparison({
   distanceNm,
   startWeightT,
@@ -2642,7 +3010,12 @@ function timeTextToMinutes(t) {
 
 function renderRows(target, rows) {
   const emphasizedRows = new Set(["Inbound Leg Time", "DPA Total", "Total Fuel Required", "Required Weight"]);
-  const stackedRows = new Set(["Estimated Step Climb Triggers", "Step Climb Plan", "Option B Speed Reduction Start"]);
+  const stackedRows = new Set([
+    "Estimated Step Climb Triggers",
+    "Step Climb Plan",
+    "Option B Speed Reduction Start",
+    "Option D Descent Segment Split",
+  ]);
   const makeStackedValueHtml = (value) =>
     String(value ?? "")
       .replace(/ -> /g, ' <span class="result-inline-sep">&rarr;</span><wbr> ')
@@ -4212,6 +4585,9 @@ function bindLoseTime() {
   const levelModeEl = document.querySelector("#lt-level-change-mode");
   const changeAfterEl = document.querySelector("#lt-change-after-min");
   const newFlEl = document.querySelector("#lt-new-fl");
+  const todDistanceEl = document.querySelector("#lt-tod-distance");
+  const fixAltEl = document.querySelector("#lt-fix-alt");
+  const descentIasEl = document.querySelector("#lt-descent-ias");
 
   function toggleInputs() {
     const levelNone = levelModeEl.value === "none";
@@ -4299,6 +4675,90 @@ function bindLoseTime() {
         perfAdjust,
       });
 
+      const hasOptionDInputs =
+        todDistanceEl &&
+        fixAltEl &&
+        descentIasEl &&
+        !fieldIsBlank(todDistanceEl.value) &&
+        !fieldIsBlank(fixAltEl.value) &&
+        !fieldIsBlank(descentIasEl.value);
+
+      let optionDRows = [];
+      if (hasOptionDInputs) {
+        try {
+          const distanceToTodNm = parseNum(todDistanceEl.value);
+          const fixCrossingAltitudeFt = parseNum(fixAltEl.value);
+          const descentIasKt = parseNum(descentIasEl.value);
+          const optionD = buildLoseTimeCruiseDescentOption({
+            distanceNm,
+            startWeightT,
+            startFl,
+            requiredDelayMin,
+            cruiseWindKt: windKt,
+            distanceToTodNm,
+            fixCrossingAltitudeFt,
+            descentIasKt,
+            perfAdjust,
+          });
+          const optionDLevelChangeNote =
+            levelChangeMode === "none"
+              ? ""
+              : "Option D uses Distance to TOD / Fix Crossing Altitude and does not apply the Level Change inputs";
+          optionDRows = [
+            ["__spacer__", ""],
+            ["__section__", "Option D (Cruise + Descent)"],
+            ["Option D Baseline Time to Fix", formatMinutes(optionD.baseline.totalTimeMin)],
+            ["Option D Time to Fix (target)", formatMinutes(optionD.targetTimeMin)],
+            ["Option D Time", formatMinutes(optionD.solution.totalTimeMin + optionD.residualHoldMin)],
+            [
+              "Option D Delay Achieved",
+              `${format(optionD.solution.totalTimeMin + optionD.residualHoldMin - optionD.baseline.totalTimeMin, 2)} min`,
+            ],
+            ["Option D Cruise / Initial Descent Mach", format(optionD.requiredMach, 3)],
+            [
+              "Option D Descent IAS (>10000 / <=10000)",
+              `${format(optionD.solution.descentIasAbove10kKt, 0)} / ${format(optionD.solution.descentIasBelow10kKt, 0)} kt`,
+            ],
+            ["Option D Mach/IAS Crossover Altitude", `${format(optionD.solution.crossoverAltitudeFt, 0)} ft`],
+            [
+              "Option D Cruise Distance / Descent Distance",
+              `${format(optionD.solution.cruiseDistanceNm, 1)} / ${format(optionD.solution.descentDistanceNm, 1)} NM`,
+            ],
+            [
+              "Option D Cruise Time / Descent Time",
+              `${format(optionD.solution.cruiseTimeMin, 1)} / ${format(optionD.solution.descentTimeMin, 1)} min`,
+            ],
+            [
+              "Option D Descent Segment Split",
+              `Mach ${format(optionD.solution.machSegmentDistanceNm, 1)} NM (${format(optionD.solution.machSegmentTimeMin, 1)} min), IAS ${format(optionD.solution.iasHighSegmentDistanceNm, 1)} NM (${format(optionD.solution.iasHighSegmentTimeMin, 1)} min), Low ${format(optionD.solution.iasLowSegmentDistanceNm, 1)} NM (${format(optionD.solution.iasLowSegmentTimeMin, 1)} min)`,
+            ],
+            [
+              "Option D Reference Descent Distance / Time",
+              `${format(optionD.solution.referenceDescentDistanceNm, 1)} NM / ${format(optionD.solution.referenceDescentTimeMin, 1)} min`,
+            ],
+            ["Option D Residual Hold at Fix", `${format(optionD.residualHoldMin, 2)} min`],
+            ...(optionDLevelChangeNote ? [["__warning__", optionDLevelChangeNote]] : []),
+          ];
+        } catch (optionDError) {
+          optionDRows = [
+            ["__spacer__", ""],
+            ["__section__", "Option D (Cruise + Descent)"],
+            ["Option D Solution", String(optionDError?.message || "Unable to compute cruise + descent option")],
+          ];
+        }
+      } else if (
+        todDistanceEl &&
+        fixAltEl &&
+        descentIasEl &&
+        [todDistanceEl.value, fixAltEl.value, descentIasEl.value].some((value) => !fieldIsBlank(value))
+      ) {
+        optionDRows = [
+          ["__spacer__", ""],
+          ["__section__", "Option D (Cruise + Descent)"],
+          ["Option D Solution", "Enter Distance to TOD, Fix Crossing Altitude, and Descent IAS to enable Option D"],
+        ];
+      }
+
       const switchInfo = comparison.optionB.switchInfo;
       const switchText = switchInfo
         ? `${formatMinutes(switchInfo.atElapsedMin)} elapsed, ${format(switchInfo.remainingNmAtSwitch, 1)} NM to fix`
@@ -4332,6 +4792,7 @@ function bindLoseTime() {
         ["Option B Residual Hold at Fix", `${format(comparison.residualHoldMin, 2)} min`],
         ["__spacer__", ""],
         ...optionCRows,
+        ...optionDRows,
         ["__spacer__", ""],
         ["Fuel Difference (A - B)", `${format(comparison.optionA.fuelBurnKg - comparison.optionB.fuelBurnKg, 0)} kg`],
         ["Final Weight Option A / B", `${format(comparison.optionA.finalWeightT, 2)} / ${format(comparison.optionB.finalWeightT, 2)} t`],

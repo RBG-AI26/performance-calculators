@@ -148,6 +148,36 @@ const tripCurrentWeightLong = context.solveTripFuelLandingWeightFromCurrentWeigh
 assertApprox(tripCurrentWeightLong.solvedLandingWeightT, 154.43115234375, 1e-9, "Trip current-weight long solved landing weight");
 assertApprox(tripCurrentWeightLong.impliedFlightFuelBurnKg, 84868.72490692139, 1e-6, "Trip current-weight long implied flight fuel");
 
+const loseTimeCruiseDescent = context.buildLoseTimeCruiseDescentOption({
+  distanceNm: 160,
+  startWeightT: 161,
+  startFl: 400,
+  requiredDelayMin: 2,
+  cruiseWindKt: 0,
+  distanceToTodNm: 80,
+  fixCrossingAltitudeFt: 10000,
+  descentIasKt: 280,
+  perfAdjust: 0,
+});
+assertApprox(loseTimeCruiseDescent.baseline.totalTimeMin, 21.831226592765155, 1e-9, "Lose time option D baseline");
+assertApprox(loseTimeCruiseDescent.targetTimeMin, 23.831226592765155, 1e-9, "Lose time option D target");
+assertApprox(loseTimeCruiseDescent.solution.totalTimeMin, 23.83122659249769, 1e-9, "Lose time option D solution");
+assertApprox(loseTimeCruiseDescent.requiredMach, 0.729701364756806, 1e-9, "Lose time option D required Mach");
+assertApprox(loseTimeCruiseDescent.solution.descentIasBelow10kKt, 250, 1e-9, "Lose time option D low IAS cap");
+
+const loseTimeCruiseDescentSlow = context.buildLoseTimeCruiseDescentOption({
+  distanceNm: 160,
+  startWeightT: 161,
+  startFl: 400,
+  requiredDelayMin: 2,
+  cruiseWindKt: 0,
+  distanceToTodNm: 80,
+  fixCrossingAltitudeFt: 7000,
+  descentIasKt: 220,
+  perfAdjust: 0,
+});
+assertApprox(loseTimeCruiseDescentSlow.solution.descentIasBelow10kKt, 220, 1e-9, "Lose time option D low IAS match");
+
 const diversionLow = context.diversionLrcFuelByBand("low", 400, -50, 28000, 180, 0, 0, 0);
 assertApprox(diversionLow.adjustedFuelKg, 4639.375, 1e-6, "Low diversion flight fuel");
 assertApprox(diversionLow.reserveCalcWeightT, 175.160625, 1e-6, "Low diversion landing weight");
