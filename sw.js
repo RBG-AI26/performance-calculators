@@ -1,4 +1,4 @@
-const CACHE_NAME = "performance-calculators-v20";
+const CACHE_NAME = "performance-calculators-v22";
 const APP_SHELL_ASSETS = [
   "./",
   "./index.html",

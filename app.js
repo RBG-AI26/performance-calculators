@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.8.0";
+const APP_VERSION = "v7.8.2";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -332,6 +332,39 @@ function formatMinutes(minutes) {
     hh += 1;
   }
   return `${sign}${String(hh).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function formatHoursDecimalMinutes(totalMinutes, minuteDigits = 1) {
+  if (!Number.isFinite(totalMinutes)) return "-";
+  const sign = totalMinutes < 0 ? "-" : "";
+  const absMinutes = Math.abs(totalMinutes);
+  const hours = Math.floor(absMinutes / 60);
+  const minutes = absMinutes - hours * 60;
+  const fixedMinutes = minutes.toFixed(Math.max(0, minuteDigits));
+  const minuteText = minutes < 10 ? `0${fixedMinutes}` : fixedMinutes;
+  return `${sign}${hours}:${minuteText}`;
+}
+
+function parseHoursDecimalMinutes(rawInput, label = "Time") {
+  const text = String(rawInput ?? "").trim();
+  if (text === "") {
+    throw new Error(`${label} must be entered`);
+  }
+  const match = text.match(/^(-?)(\d+):(\d{1,2}(?:\.\d+)?)$/);
+  if (!match) {
+    throw new Error(`${label} must use H:MM or H:MM.m format`);
+  }
+  const [, signText, hoursText, minutesText] = match;
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    throw new Error(`${label} is invalid`);
+  }
+  if (minutes < 0 || minutes >= 60) {
+    throw new Error(`${label} minutes must be between 0 and < 60`);
+  }
+  const totalMinutes = hours * 60 + minutes;
+  return signText === "-" ? -totalMinutes : totalMinutes;
 }
 
 function normalize360(deg) {
@@ -1270,6 +1303,68 @@ function longRangeFuel(anm, weight, perfAdjust, additionalHoldingMin, arrivalAll
   };
 }
 
+function calculateTripTimeBase(gnm, wind) {
+  const shortAnm = (() => {
+    try {
+      return shortTripAnmFromGnm(gnm, wind);
+    } catch {
+      return NaN;
+    }
+  })();
+  const longAnm = (() => {
+    try {
+      return longRangeAnmFromGnm(gnm, wind);
+    } catch {
+      return NaN;
+    }
+  })();
+  if (!Number.isFinite(shortAnm) && !Number.isFinite(longAnm)) {
+    throw new Error("Trip fuel ANM lookup out of range");
+  }
+
+  const referenceAnm = Number.isFinite(longAnm) ? longAnm : shortAnm;
+  let mode;
+  let anmDisplay;
+  let timeMinutes;
+  let blendAlpha = NaN;
+
+  if (referenceAnm < 600) {
+    if (!Number.isFinite(shortAnm)) {
+      throw new Error("Trip fuel requires short-trip coverage below 600 ANM");
+    }
+    mode = "short";
+    anmDisplay = shortAnm;
+    timeMinutes = linear(shortTripFuelAlt.anmAxis, shortTripFuelAlt.timeValuesText.map(timeTextToMinutes), shortAnm);
+  } else if (referenceAnm > 800) {
+    if (!Number.isFinite(longAnm)) {
+      throw new Error("Trip fuel requires long-range coverage above 800 ANM");
+    }
+    const longResult = longRangeCore(longAnm, 120, 0);
+    mode = "long";
+    anmDisplay = longAnm;
+    timeMinutes = longResult.timeMinutes;
+  } else {
+    blendAlpha = clamp((referenceAnm - 600) / 200, 0, 1);
+    const shortEdge = shortTripCore(600, 120, 0);
+    const longEdge = longRangeCore(800, 120, 0);
+    mode = "blend";
+    anmDisplay =
+      Number.isFinite(shortAnm) && Number.isFinite(longAnm)
+        ? shortAnm + (longAnm - shortAnm) * blendAlpha
+        : referenceAnm;
+    timeMinutes = shortEdge.timeMinutes + (longEdge.timeMinutes - shortEdge.timeMinutes) * blendAlpha;
+  }
+
+  return {
+    mode,
+    anmDisplay,
+    shortAnm,
+    longAnm,
+    blendAlpha,
+    timeMinutes,
+  };
+}
+
 function estimateLongSectorCruiseGuidance(landingWeightT, flightFuelKg, tripTimeMinutes) {
   if (!LRC_ALTITUDE_LIMITS_TABLE) return null;
   const ISA_DEVIATION_C = 10;
@@ -1318,62 +1413,22 @@ function estimateLongSectorCruiseGuidance(landingWeightT, flightFuelKg, tripTime
 }
 
 function calculateTripFuelBase(gnm, wind, weight, perfAdjust) {
-  const shortAnm = (() => {
-    try {
-      return shortTripAnmFromGnm(gnm, wind);
-    } catch {
-      return NaN;
-    }
-  })();
-  const longAnm = (() => {
-    try {
-      return longRangeAnmFromGnm(gnm, wind);
-    } catch {
-      return NaN;
-    }
-  })();
-  if (!Number.isFinite(shortAnm) && !Number.isFinite(longAnm)) {
-    throw new Error("Trip fuel ANM lookup out of range");
-  }
-
-  const referenceAnm = Number.isFinite(longAnm) ? longAnm : shortAnm;
-  let mode;
-  let anmDisplay;
+  const timeBase = calculateTripTimeBase(gnm, wind);
+  const { mode, anmDisplay, shortAnm, longAnm, blendAlpha, timeMinutes } = timeBase;
   let flightFuelKg;
-  let timeMinutes;
   let suggestedAltFt = NaN;
-  let blendAlpha = NaN;
 
-  if (referenceAnm < 600) {
-    if (!Number.isFinite(shortAnm)) {
-      throw new Error("Trip fuel requires short-trip coverage below 600 ANM");
-    }
+  if (mode === "short") {
     const shortResult = shortTripCore(shortAnm, weight, perfAdjust);
-    mode = "short";
-    anmDisplay = shortAnm;
     flightFuelKg = shortResult.flightFuelKg;
-    timeMinutes = shortResult.timeMinutes;
     suggestedAltFt = shortResult.altitudeFt;
-  } else if (referenceAnm > 800) {
-    if (!Number.isFinite(longAnm)) {
-      throw new Error("Trip fuel requires long-range coverage above 800 ANM");
-    }
+  } else if (mode === "long") {
     const longResult = longRangeCore(longAnm, weight, perfAdjust);
-    mode = "long";
-    anmDisplay = longAnm;
     flightFuelKg = longResult.flightFuelKg;
-    timeMinutes = longResult.timeMinutes;
   } else {
-    blendAlpha = clamp((referenceAnm - 600) / 200, 0, 1);
     const shortEdge = shortTripCore(600, weight, perfAdjust);
     const longEdge = longRangeCore(800, weight, perfAdjust);
-    mode = "blend";
-    anmDisplay =
-      Number.isFinite(shortAnm) && Number.isFinite(longAnm)
-        ? shortAnm + (longAnm - shortAnm) * blendAlpha
-        : referenceAnm;
     flightFuelKg = shortEdge.flightFuelKg + (longEdge.flightFuelKg - shortEdge.flightFuelKg) * blendAlpha;
-    timeMinutes = shortEdge.timeMinutes + (longEdge.timeMinutes - shortEdge.timeMinutes) * blendAlpha;
     suggestedAltFt = shortEdge.altitudeFt;
   }
 
@@ -1389,6 +1444,77 @@ function calculateTripFuelBase(gnm, wind, weight, perfAdjust) {
     timeMinutes,
     suggestedAltFt,
     longGuidance,
+  };
+}
+
+function solveTripFuelWindFromTime(gnm, targetTimeMin) {
+  if (!Number.isFinite(gnm) || gnm <= 0) {
+    throw new Error("Ground Distance (GNM) must be > 0");
+  }
+  if (!Number.isFinite(targetTimeMin) || targetTimeMin <= 0) {
+    throw new Error("Time must be > 0");
+  }
+
+  const minWindKt = -100;
+  const maxWindKt = 100;
+  const toleranceMin = 1e-4;
+  const low = { windKt: minWindKt, timeBase: calculateTripTimeBase(gnm, minWindKt) };
+  const high = { windKt: maxWindKt, timeBase: calculateTripTimeBase(gnm, maxWindKt) };
+  const minTimeMin = Math.min(low.timeBase.timeMinutes, high.timeBase.timeMinutes);
+  const maxTimeMin = Math.max(low.timeBase.timeMinutes, high.timeBase.timeMinutes);
+  const timeIncreasesWithWind = high.timeBase.timeMinutes > low.timeBase.timeMinutes;
+
+  if (targetTimeMin < minTimeMin - toleranceMin || targetTimeMin > maxTimeMin + toleranceMin) {
+    throw new Error(
+      `Time out of range for wind resolution at this distance (${formatHoursDecimalMinutes(minTimeMin)}-${formatHoursDecimalMinutes(maxTimeMin)})`,
+    );
+  }
+
+  let lowWindKt = minWindKt;
+  let highWindKt = maxWindKt;
+  let lowTimeBase = low.timeBase;
+  let highTimeBase = high.timeBase;
+  let best = Math.abs(lowTimeBase.timeMinutes - targetTimeMin) <= Math.abs(highTimeBase.timeMinutes - targetTimeMin) ? low : high;
+
+  for (let i = 0; i < 36; i += 1) {
+    const midWindKt = (lowWindKt + highWindKt) / 2;
+    const midTimeBase = calculateTripTimeBase(gnm, midWindKt);
+    if (Math.abs(midTimeBase.timeMinutes - targetTimeMin) < Math.abs(best.timeBase.timeMinutes - targetTimeMin)) {
+      best = { windKt: midWindKt, timeBase: midTimeBase };
+    }
+    if (Math.abs(midTimeBase.timeMinutes - targetTimeMin) <= toleranceMin) {
+      return {
+        resolvedWindKt: midWindKt,
+        timeBase: midTimeBase,
+      };
+    }
+    if (timeIncreasesWithWind) {
+      if (midTimeBase.timeMinutes < targetTimeMin) {
+        lowWindKt = midWindKt;
+        lowTimeBase = midTimeBase;
+      } else {
+        highWindKt = midWindKt;
+        highTimeBase = midTimeBase;
+      }
+    } else if (midTimeBase.timeMinutes < targetTimeMin) {
+      highWindKt = midWindKt;
+      highTimeBase = midTimeBase;
+    } else {
+      lowWindKt = midWindKt;
+      lowTimeBase = midTimeBase;
+    }
+  }
+
+  if (Math.abs(lowTimeBase.timeMinutes - targetTimeMin) < Math.abs(best.timeBase.timeMinutes - targetTimeMin)) {
+    best = { windKt: lowWindKt, timeBase: lowTimeBase };
+  }
+  if (Math.abs(highTimeBase.timeMinutes - targetTimeMin) < Math.abs(best.timeBase.timeMinutes - targetTimeMin)) {
+    best = { windKt: highWindKt, timeBase: highTimeBase };
+  }
+
+  return {
+    resolvedWindKt: best.windKt,
+    timeBase: best.timeBase,
   };
 }
 
@@ -1422,7 +1548,6 @@ function calculateTripFuelEnhanced({
   appKg = FIXED_ALLOWANCE_KG,
   arrivalFuelKg = 0,
   wxHoldKg = 0,
-  sngRwyHoldKg = 0,
   divnNdaKg = 0,
   divHoldKg = 0,
   contingencyKg = NaN,
@@ -1441,7 +1566,6 @@ function calculateTripFuelEnhanced({
     resolvedContingencyKg +
     arrivalFuelKg +
     wxHoldKg +
-    sngRwyHoldKg +
     divnNdaKg +
     divHoldKg +
     reqAdditionalKg +
@@ -1453,7 +1577,6 @@ function calculateTripFuelEnhanced({
     appKg,
     arrivalFuelKg,
     wxHoldKg,
-    sngRwyHoldKg,
     divnNdaKg,
     divHoldKg,
     contingencyKg: resolvedContingencyKg,
@@ -2396,6 +2519,23 @@ function getReferenceDescentProfileSegment(startAltitudeFt, endAltitudeFt) {
   };
 }
 
+function getEstimatedFixCrossingAltitudeFt(startAltitudeFt, descentDistanceNm) {
+  const startFt = Math.max(0, startAltitudeFt);
+  const usedDescentDistanceNm = Math.max(0, descentDistanceNm);
+  const startReferenceDistanceNm = getReferenceDescentMetricAtAltitudeFt(
+    startFt,
+    LOSE_TIME_REFERENCE_DESCENT_DISTANCE_NM,
+    "reference descent distance",
+  );
+  const targetReferenceDistanceNm = Math.max(0, startReferenceDistanceNm - usedDescentDistanceNm);
+  return interpolateFromAvailablePointsClamped(
+    LOSE_TIME_REFERENCE_DESCENT_DISTANCE_NM,
+    LOSE_TIME_REFERENCE_DESCENT_ALT_AXIS_FT,
+    targetReferenceDistanceNm,
+    "estimated fix crossing altitude",
+  );
+}
+
 function getLinearWindAtAltitudeKt(cruiseWindKt, startAltitudeFt, altitudeFt) {
   if (!Number.isFinite(cruiseWindKt)) throw new Error("Wind is invalid");
   if (!Number.isFinite(startAltitudeFt) || startAltitudeFt <= 0) return 0;
@@ -2479,7 +2619,6 @@ function simulateCruiseDescentTimeToFix({
   startFl,
   cruiseWindKt,
   distanceToTodNm,
-  fixCrossingAltitudeFt,
   descentIasKt,
   cruiseMach,
 }) {
@@ -2495,9 +2634,6 @@ function simulateCruiseDescentTimeToFix({
   if (!Number.isFinite(distanceToTodNm) || distanceToTodNm < 0) {
     throw new Error("Distance to TOD must be >= 0 NM");
   }
-  if (!Number.isFinite(fixCrossingAltitudeFt) || fixCrossingAltitudeFt < 0) {
-    throw new Error("Fix crossing altitude must be >= 0 ft");
-  }
   if (!Number.isFinite(descentIasKt) || descentIasKt <= 0) {
     throw new Error("Descent IAS must be > 0 kt");
   }
@@ -2508,12 +2644,13 @@ function simulateCruiseDescentTimeToFix({
   const startAltitudeFt = startFl * 100;
   const cruiseDistanceUsedNm = Math.min(distanceNm, distanceToTodNm);
   const descentDistanceUsedNm = Math.max(0, distanceNm - cruiseDistanceUsedNm);
+  const fixCrossingAltitudeFt =
+    descentDistanceUsedNm <= 1e-7
+      ? startAltitudeFt
+      : getEstimatedFixCrossingAltitudeFt(startAltitudeFt, descentDistanceUsedNm);
   const lowAltitudeIasKt = Math.min(descentIasKt, 250);
 
   if (descentDistanceUsedNm <= 1e-7) {
-    if (fixCrossingAltitudeFt < startAltitudeFt - 1) {
-      throw new Error("TOD is beyond the fix, so fix crossing altitude must match the current altitude");
-    }
     const cruiseTasKt = getTasAtAltitudeForMach(startAltitudeFt, cruiseMach).tasKt;
     const cruiseGsKt = cruiseTasKt + cruiseWindKt;
     if (cruiseGsKt <= 0) {
@@ -2525,6 +2662,7 @@ function simulateCruiseDescentTimeToFix({
       cruiseTimeMin: (cruiseDistanceUsedNm / cruiseGsKt) * 60,
       descentTimeMin: 0,
       totalTimeMin: (cruiseDistanceUsedNm / cruiseGsKt) * 60,
+      fixCrossingAltitudeFt,
       crossoverAltitudeFt: startAltitudeFt,
       descentIasAbove10kKt: descentIasKt,
       descentIasBelow10kKt: lowAltitudeIasKt,
@@ -2538,10 +2676,6 @@ function simulateCruiseDescentTimeToFix({
       iasLowSegmentTimeMin: 0,
       cruiseMach,
     };
-  }
-
-  if (fixCrossingAltitudeFt >= startAltitudeFt - 1) {
-    throw new Error("Fix crossing altitude must be below the current altitude when TOD is before the fix");
   }
 
   const referenceDescent = getReferenceDescentProfileSegment(startAltitudeFt, fixCrossingAltitudeFt);
@@ -2603,6 +2737,7 @@ function simulateCruiseDescentTimeToFix({
     cruiseTimeMin,
     descentTimeMin,
     totalTimeMin: cruiseTimeMin + descentTimeMin,
+    fixCrossingAltitudeFt,
     crossoverAltitudeFt,
     descentIasAbove10kKt: descentIasKt,
     descentIasBelow10kKt: lowAltitudeIasKt,
@@ -2625,7 +2760,6 @@ function buildLoseTimeCruiseDescentOption({
   requiredDelayMin,
   cruiseWindKt,
   distanceToTodNm,
-  fixCrossingAltitudeFt,
   descentIasKt,
   perfAdjust,
 }) {
@@ -2642,7 +2776,6 @@ function buildLoseTimeCruiseDescentOption({
     startFl,
     cruiseWindKt,
     distanceToTodNm,
-    fixCrossingAltitudeFt,
     descentIasKt,
     cruiseMach: baselineCruise.mach,
   });
@@ -2664,7 +2797,6 @@ function buildLoseTimeCruiseDescentOption({
     startFl,
     cruiseWindKt,
     distanceToTodNm,
-    fixCrossingAltitudeFt,
     descentIasKt,
     cruiseMach: minimumMach,
   });
@@ -2691,7 +2823,6 @@ function buildLoseTimeCruiseDescentOption({
       startFl,
       cruiseWindKt,
       distanceToTodNm,
-      fixCrossingAltitudeFt,
       descentIasKt,
       cruiseMach: midMach,
     });
@@ -3202,15 +3333,20 @@ function replaceLinkedWeightOverrides(overrides) {
 
 function getTripFuelEstimatedStartWeightT() {
   const gnmEl = document.querySelector("#trip-gnm");
+  const windModeEl = document.querySelector("#trip-wind-mode");
   const windEl = document.querySelector("#trip-wind");
   const weightModeEl = document.querySelector("#trip-weight-mode");
   const weightEl = document.querySelector("#trip-weight");
-  if (!gnmEl || !windEl || !weightModeEl || !weightEl) return NaN;
+  if (!gnmEl || !windModeEl || !windEl || !weightModeEl || !weightEl) return NaN;
   if (fieldIsBlank(gnmEl.value) || fieldIsBlank(weightEl.value)) return NaN;
 
   try {
     const gnm = parseNum(gnmEl.value);
-    const wind = parseNumOrDefault(windEl.value, 0);
+    const windMode = String(windModeEl.value || "wind");
+    const wind =
+      windMode === "time"
+        ? solveTripFuelWindFromTime(gnm, parseHoursDecimalMinutes(windEl.value, "Time")).resolvedWindKt
+        : parseNumOrDefault(windEl.value, 0);
     const inputWeightT = parseNum(weightEl.value);
     const perfAdjust = getGlobalPerfAdjust();
     if (String(weightModeEl.value || "landing") === "current") {
@@ -3454,6 +3590,7 @@ function bindTripFuel() {
   if (!form || !out) return;
 
   const gnmEl = document.querySelector("#trip-gnm");
+  const windModeEl = document.querySelector("#trip-wind-mode");
   const windEl = document.querySelector("#trip-wind");
   const weightModeEl = document.querySelector("#trip-weight-mode");
   const weightEl = document.querySelector("#trip-weight");
@@ -3463,8 +3600,6 @@ function bindTripFuel() {
   const arrivalFuelEl = document.querySelector("#trip-arrival-fuel");
   const wxHoldModeEl = document.querySelector("#trip-wx-hold-mode");
   const wxHoldEl = document.querySelector("#trip-wx-hold");
-  const sngRwyHoldModeEl = document.querySelector("#trip-sng-rwy-hold-mode");
-  const sngRwyHoldEl = document.querySelector("#trip-sng-rwy-hold");
   const divnNdaModeEl = document.querySelector("#trip-divn-nda-mode");
   const divnNdaEl = document.querySelector("#trip-divn-nda");
   const divHoldModeEl = document.querySelector("#trip-div-hold-mode");
@@ -3478,6 +3613,7 @@ function bindTripFuel() {
 
   if (
     !gnmEl ||
+    !windModeEl ||
     !windEl ||
     !weightModeEl ||
     !weightEl ||
@@ -3487,8 +3623,6 @@ function bindTripFuel() {
     !arrivalFuelEl ||
     !wxHoldModeEl ||
     !wxHoldEl ||
-    !sngRwyHoldModeEl ||
-    !sngRwyHoldEl ||
     !divnNdaModeEl ||
     !divnNdaEl ||
     !divHoldModeEl ||
@@ -3507,18 +3641,31 @@ function bindTripFuel() {
     setModeInputState(contModeEl, contEl);
     setModeInputState(frfModeEl, frfEl);
     syncModeButtons.forEach((syncButtons) => syncButtons());
+    const windMode = String(windModeEl.value || "wind");
+    const windLabelEl = document.querySelector("#trip-wind-label");
+    if (windLabelEl) {
+      windLabelEl.textContent = windMode === "time" ? "Time (H:MM.m)" : "Wind +/-";
+    }
+    windEl.type = windMode === "time" ? "text" : "number";
+    windEl.inputMode = windMode === "time" ? "text" : "decimal";
+    windEl.placeholder = windMode === "time" ? "e.g. 1:14.9" : "";
+    if (windMode === "wind") {
+      windEl.step = "1";
+    } else {
+      windEl.removeAttribute("step");
+    }
     const isCurrentWeightMode = String(weightModeEl.value || "landing") === "current";
     const weightLabelEl = document.querySelector("#trip-weight-label");
     if (weightLabelEl) {
-      weightLabelEl.textContent = isCurrentWeightMode ? "Current Weight (t)" : "Landing Weight (t)";
+      weightLabelEl.textContent = isCurrentWeightMode ? "T/O or G/A Wt (t)" : "Landing Weight (t)";
     }
   };
 
   const modeEls = [
+    windModeEl,
     weightModeEl,
     arrivalFuelModeEl,
     wxHoldModeEl,
-    sngRwyHoldModeEl,
     divnNdaModeEl,
     divHoldModeEl,
     contModeEl,
@@ -3541,16 +3688,23 @@ function bindTripFuel() {
         fieldIsBlank(gnmEl.value) ? "Ground Distance (GNM)" : "",
         fieldIsBlank(weightEl.value)
           ? String(weightModeEl.value || "landing") === "current"
-            ? "Current Weight"
+            ? "T/O or G/A Wt"
             : "Landing Weight"
           : "",
+        String(windModeEl.value || "wind") === "time" && fieldIsBlank(windEl.value) ? "Time" : "",
       ])
     ) {
       return;
     }
     try {
       const gnm = parseNum(gnmEl.value);
-      const wind = parseNumOrDefault(windEl.value, 0);
+      const windMode = String(windModeEl.value || "wind");
+      const timeInputMin = windMode === "time" ? parseHoursDecimalMinutes(windEl.value, "Time") : NaN;
+      const windResolution =
+        windMode === "time"
+          ? solveTripFuelWindFromTime(gnm, timeInputMin)
+          : { resolvedWindKt: parseNumOrDefault(windEl.value, 0), timeBase: null };
+      const wind = windResolution.resolvedWindKt;
       const inputWeightT = parseNum(weightEl.value);
       const weightMode = String(weightModeEl.value || "landing");
       const perfAdjust = getGlobalPerfAdjust();
@@ -3590,12 +3744,6 @@ function bindTripFuel() {
         modeEl: wxHoldModeEl,
         valueEl: wxHoldEl,
         minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
-      });
-      const sngRwyHoldKg = resolveMixedEntryKg({
-        label: "SNG RWY Hold",
-        modeEl: sngRwyHoldModeEl,
-        valueEl: sngRwyHoldEl,
-        minuteFuelFlowKgHr: frfFuelFlowKgHr,
       });
       const divnNdaKg = resolveMixedEntryKg({
         label: "Divn/NDA",
@@ -3639,7 +3787,6 @@ function bindTripFuel() {
         appKg,
         arrivalFuelKg,
         wxHoldKg,
-        sngRwyHoldKg,
         divnNdaKg,
         divHoldKg,
         contingencyKg,
@@ -3648,12 +3795,15 @@ function bindTripFuel() {
       });
       syncLinkedStartWeights(weightMode === "current" ? tripWeightContext.currentWeightT : landingWeightT + result.flightFuelKg / 1000);
 
-      if (fieldIsBlank(windEl.value)) {
+      if (windMode === "wind" && fieldIsBlank(windEl.value)) {
         windEl.value = formatInputNumber(0, 0);
+      } else if (windMode === "time") {
+        windEl.value = formatHoursDecimalMinutes(timeInputMin);
       }
 
       const rows = [
         ["Air Distance (ANM)", `${format(result.anmDisplay, 0)} nm`],
+        ...(windMode === "time" ? [["Resolved Wind", `${format(wind, 1)} kt`]] : []),
         ...(weightMode === "current"
           ? [
               ["Current Weight", `${format(tripWeightContext.currentWeightT, 1)} t`],
@@ -3667,7 +3817,6 @@ function bindTripFuel() {
         ["Cont", `${format(result.contingencyKg, 0)} kg`],
         ["Arrival Fuel", `${format(result.arrivalFuelKg, 0)} kg`],
         ["Wx Hold", `${format(result.wxHoldKg, 0)} kg`],
-        ["SNG RWY Hold", `${format(result.sngRwyHoldKg, 0)} kg`],
         ["Divn/NDA", `${format(result.divnNdaKg, 0)} kg`],
         ["Div Hold", `${format(result.divHoldKg, 0)} kg`],
         ["Rqd Additional/Other Hold", `${format(result.reqAdditionalKg, 0)} kg`],
@@ -4586,7 +4735,6 @@ function bindLoseTime() {
   const changeAfterEl = document.querySelector("#lt-change-after-min");
   const newFlEl = document.querySelector("#lt-new-fl");
   const todDistanceEl = document.querySelector("#lt-tod-distance");
-  const fixAltEl = document.querySelector("#lt-fix-alt");
   const descentIasEl = document.querySelector("#lt-descent-ias");
 
   function toggleInputs() {
@@ -4677,17 +4825,14 @@ function bindLoseTime() {
 
       const hasOptionDInputs =
         todDistanceEl &&
-        fixAltEl &&
         descentIasEl &&
         !fieldIsBlank(todDistanceEl.value) &&
-        !fieldIsBlank(fixAltEl.value) &&
         !fieldIsBlank(descentIasEl.value);
 
       let optionDRows = [];
       if (hasOptionDInputs) {
         try {
           const distanceToTodNm = parseNum(todDistanceEl.value);
-          const fixCrossingAltitudeFt = parseNum(fixAltEl.value);
           const descentIasKt = parseNum(descentIasEl.value);
           const optionD = buildLoseTimeCruiseDescentOption({
             distanceNm,
@@ -4696,14 +4841,13 @@ function bindLoseTime() {
             requiredDelayMin,
             cruiseWindKt: windKt,
             distanceToTodNm,
-            fixCrossingAltitudeFt,
             descentIasKt,
             perfAdjust,
           });
           const optionDLevelChangeNote =
             levelChangeMode === "none"
               ? ""
-              : "Option D uses Distance to TOD / Fix Crossing Altitude and does not apply the Level Change inputs";
+              : "Option D uses Distance to TOD and estimated fix crossing altitude from the descent table, and does not apply the Level Change inputs";
           optionDRows = [
             ["__spacer__", ""],
             ["__section__", "Option D (Cruise + Descent)"],
@@ -4714,6 +4858,7 @@ function bindLoseTime() {
               "Option D Delay Achieved",
               `${format(optionD.solution.totalTimeMin + optionD.residualHoldMin - optionD.baseline.totalTimeMin, 2)} min`,
             ],
+            ["Option D Estimated Fix Crossing Altitude", `${format(optionD.solution.fixCrossingAltitudeFt, 0)} ft`],
             ["Option D Cruise / Initial Descent Mach", format(optionD.requiredMach, 3)],
             [
               "Option D Descent IAS (>10000 / <=10000)",
@@ -4748,14 +4893,13 @@ function bindLoseTime() {
         }
       } else if (
         todDistanceEl &&
-        fixAltEl &&
         descentIasEl &&
-        [todDistanceEl.value, fixAltEl.value, descentIasEl.value].some((value) => !fieldIsBlank(value))
+        [todDistanceEl.value, descentIasEl.value].some((value) => !fieldIsBlank(value))
       ) {
         optionDRows = [
           ["__spacer__", ""],
           ["__section__", "Option D (Cruise + Descent)"],
-          ["Option D Solution", "Enter Distance to TOD, Fix Crossing Altitude, and Descent IAS to enable Option D"],
+          ["Option D Solution", "Enter Distance to TOD and Descent IAS to enable Option D"],
         ];
       }
 

@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.8.0</p>
+        <p class="app-version" id="app-version">Version v7.8.2</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -68,16 +68,27 @@
       <section class="panel" data-family="fuel" aria-labelledby="trip-fuel-heading">
         <h2 id="trip-fuel-heading">Trip Fuel</h2>
         <p class="module-note">Short-trip/LRC unified fuel model with ANM blending from 600-800</p>
-        <p class="dpa-assumptions">1500 ft basis: Arrival Fuel, SNG RWY Hold, Divn/NDA, FRF. 20000 ft basis: Wx Hold, Div Hold, Rqd Additional/Other Hold.</p>
+        <p class="dpa-assumptions">1500 ft basis: Arrival Fuel, Divn/NDA, FRF. 20000 ft basis: Wx Hold, Div Hold, Rqd Additional/Other Hold.</p>
         <form id="trip-fuel-form" class="trip-fuel-form">
           <div class="trip-fuel-core-inputs">
             <label>
               Ground Distance (GNM)
               <input type="number" step="1" id="trip-gnm" value="599" />
             </label>
+            <label class="trip-weight-mode-field">
+              Wind / Time Basis
+              <select id="trip-wind-mode" class="sr-only">
+                <option value="wind" selected>Wind</option>
+                <option value="time">Time</option>
+              </select>
+              <div class="dpa-mode-pills" data-mode-for="trip-wind-mode">
+                <button type="button" data-mode-value="wind">Wind</button>
+                <button type="button" data-mode-value="time">Time</button>
+              </div>
+            </label>
             <label>
-              Wind +/-
-              <input type="number" step="1" id="trip-wind" value="60" />
+              <span id="trip-wind-label">Wind +/-</span>
+              <input type="text" id="trip-wind" value="60" />
             </label>
             <label>
               <span id="trip-weight-label">Landing Weight (t)</span>
@@ -129,18 +140,6 @@
                 <button type="button" data-mode-value="min">min</button>
               </div>
               <input type="number" step="1" min="0" id="trip-wx-hold" value="0" />
-            </div>
-            <div class="dpa-entry-row">
-              <label class="dpa-entry-label" for="trip-sng-rwy-hold">SNG RWY Hold</label>
-              <select id="trip-sng-rwy-hold-mode" class="sr-only">
-                <option value="kg" selected>kg</option>
-                <option value="min">min</option>
-              </select>
-              <div class="dpa-mode-pills" data-mode-for="trip-sng-rwy-hold-mode">
-                <button type="button" data-mode-value="kg">kg</button>
-                <button type="button" data-mode-value="min">min</button>
-              </div>
-              <input type="number" step="1" min="0" id="trip-sng-rwy-hold" value="0" />
             </div>
             <div class="dpa-entry-row">
               <label class="dpa-entry-label" for="trip-divn-nda">Divn/NDA</label>
@@ -603,10 +602,6 @@
           <label>
             Distance to TOD (NM)
             <input type="number" step="1" id="lt-tod-distance" value="" />
-          </label>
-          <label>
-            Fix Crossing Altitude (ft)
-            <input type="number" step="100" min="0" id="lt-fix-alt" value="" />
           </label>
           <label>
             Descent IAS Above 10,000 ft (kt)

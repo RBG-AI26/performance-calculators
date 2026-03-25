@@ -414,7 +414,7 @@ label {
 
 .trip-fuel-core-inputs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.65rem;
   align-items: end;
 }
@@ -748,7 +748,7 @@ button:hover {
   }
 
   #trip-fuel-form .trip-fuel-core-inputs {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0.55rem;
   }
 
