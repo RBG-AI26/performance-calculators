@@ -8,15 +8,19 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.8.3";
+const APP_VERSION = "v7.8.4";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
 const LINKED_WEIGHT_OVERRIDE_STORAGE_KEY = "performance-calculators-linked-weight-overrides-v1";
 const THEME_STORAGE_KEY = "performance-calculators-theme-v1";
-const NON_PERSISTED_FIELD_IDS = new Set(["scenario-name", "scenario-select", "theme-mode"]);
+const SYNC_SESSION_STORAGE_KEY = "performance-calculators-sync-session-v1";
+const NON_PERSISTED_FIELD_IDS = new Set(["scenario-name", "scenario-select", "theme-mode", "sync-email"]);
 const LINKED_START_WEIGHT_FIELD_IDS = ["dpa-weight", "lrc-alt-weight", "eo-weight", "eo-div-weight", "cog-weight"];
 const DEFAULT_THEME_MODE = "auto";
+const SYNC_STATUS_REFRESH_SKEW_MS = 60 * 1000;
+const SYNC_SCENARIO_FILE_TYPE = "performance-calculators-scenario";
+const SYNC_SCENARIO_FILE_VERSION = 1;
 
 const R_AIR = 287.05287;
 const GAMMA = 1.4;
@@ -3303,6 +3307,373 @@ function writeNamedScenarios(scenarios) {
   }
 }
 
+function getSyncConfig() {
+  const raw = window.SYNC_CONFIG || {};
+  return {
+    supabaseUrl: String(raw.supabaseUrl || "").trim().replace(/\/+$/g, ""),
+    supabaseAnonKey: String(raw.supabaseAnonKey || "").trim(),
+  };
+}
+
+function isSyncConfigured() {
+  const config = getSyncConfig();
+  return !!config.supabaseUrl && !!config.supabaseAnonKey;
+}
+
+function decodeJwtPayload(token) {
+  if (!token || typeof token !== "string" || typeof atob !== "function") return null;
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4 || 4)) % 4);
+    const decoded = atob(padded);
+    const bytes = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+    const json = new TextDecoder().decode(bytes);
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildSyncUserFromAccessToken(accessToken) {
+  const payload = decodeJwtPayload(accessToken);
+  if (!payload) return null;
+  return {
+    id: String(payload.sub || "").trim(),
+    email: String(payload.email || "").trim(),
+  };
+}
+
+function normalizeSyncSession(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const accessToken = String(raw.accessToken || raw.access_token || "").trim();
+  const refreshToken = String(raw.refreshToken || raw.refresh_token || "").trim();
+  if (!accessToken || !refreshToken) return null;
+  const tokenUser = buildSyncUserFromAccessToken(accessToken);
+  const rawUser = raw.user && typeof raw.user === "object" ? raw.user : {};
+  const expiresAt = Number(
+    raw.expiresAt ||
+      raw.expires_at ||
+      (Number.isFinite(raw.expires_in) ? Date.now() + Number(raw.expires_in) * 1000 : 0) ||
+      ((decodeJwtPayload(accessToken)?.exp || 0) * 1000),
+  );
+
+  return {
+    accessToken,
+    refreshToken,
+    expiresAt: Number.isFinite(expiresAt) ? expiresAt : 0,
+    user: {
+      id: String(rawUser.id || tokenUser?.id || "").trim(),
+      email: String(rawUser.email || tokenUser?.email || "").trim(),
+    },
+  };
+}
+
+function readSyncSession() {
+  try {
+    const raw = localStorage.getItem(SYNC_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    return normalizeSyncSession(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function writeSyncSession(session) {
+  const normalized = normalizeSyncSession(session);
+  try {
+    if (!normalized) {
+      localStorage.removeItem(SYNC_SESSION_STORAGE_KEY);
+      return null;
+    }
+    localStorage.setItem(SYNC_SESSION_STORAGE_KEY, JSON.stringify(normalized));
+    return normalized;
+  } catch {
+    return normalized;
+  }
+}
+
+function clearSyncSession() {
+  try {
+    localStorage.removeItem(SYNC_SESSION_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures and keep the app usable.
+  }
+}
+
+function extractSyncSessionFromAuthPayload(payload) {
+  return normalizeSyncSession({
+    access_token: payload?.access_token,
+    refresh_token: payload?.refresh_token,
+    expires_in: payload?.expires_in,
+    expires_at: payload?.expires_at,
+    user: payload?.user,
+  });
+}
+
+function readSyncAuthParamsFromUrl() {
+  if (typeof window === "undefined" || !window.location) return { session: null, error: "" };
+  const parameterSources = [];
+  if (window.location.hash && window.location.hash.length > 1) {
+    parameterSources.push(new URLSearchParams(window.location.hash.slice(1)));
+  }
+  if (window.location.search && window.location.search.length > 1) {
+    parameterSources.push(new URLSearchParams(window.location.search.slice(1)));
+  }
+
+  for (const params of parameterSources) {
+    const accessToken = String(params.get("access_token") || "").trim();
+    const refreshToken = String(params.get("refresh_token") || "").trim();
+    const errorDescription = String(params.get("error_description") || params.get("error") || "").trim();
+    if (accessToken && refreshToken) {
+      return {
+        session: extractSyncSessionFromAuthPayload({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          expires_in: Number(params.get("expires_in") || 0),
+          expires_at: Number(params.get("expires_at") || 0),
+        }),
+        error: "",
+      };
+    }
+    if (errorDescription) {
+      return { session: null, error: errorDescription };
+    }
+  }
+  return { session: null, error: "" };
+}
+
+function clearSyncAuthParamsFromUrl() {
+  if (typeof window === "undefined" || !window.location || !window.history?.replaceState) return;
+  try {
+    const url = new URL(window.location.href);
+    [
+      "access_token",
+      "refresh_token",
+      "expires_in",
+      "expires_at",
+      "token_type",
+      "type",
+      "error",
+      "error_description",
+    ].forEach((key) => url.searchParams.delete(key));
+    url.hash = "";
+    window.history.replaceState({}, document.title, url.toString());
+  } catch {
+    // Ignore history manipulation failures.
+  }
+}
+
+function getScenarioSavedAtValue(scenario) {
+  return String(scenario?.savedAt || "");
+}
+
+function mergeNamedScenarioMaps(localScenarios, remoteScenarios) {
+  const merged = {};
+  const names = new Set([...Object.keys(localScenarios || {}), ...Object.keys(remoteScenarios || {})]);
+  names.forEach((name) => {
+    const localScenario = localScenarios?.[name];
+    const remoteScenario = remoteScenarios?.[name];
+    if (!localScenario) {
+      merged[name] = remoteScenario;
+      return;
+    }
+    if (!remoteScenario) {
+      merged[name] = localScenario;
+      return;
+    }
+    merged[name] = getScenarioSavedAtValue(remoteScenario) > getScenarioSavedAtValue(localScenario) ? remoteScenario : localScenario;
+  });
+  return merged;
+}
+
+function getSyncRedirectUrl() {
+  if (typeof window === "undefined" || !window.location) return "";
+  const url = new URL(window.location.href);
+  url.hash = "";
+  return url.toString();
+}
+
+async function readSupabaseError(response) {
+  try {
+    const payload = await response.json();
+    return (
+      String(payload?.msg || payload?.error_description || payload?.error || payload?.message || "").trim() ||
+      `Request failed (${response.status})`
+    );
+  } catch {
+    try {
+      const text = await response.text();
+      return text || `Request failed (${response.status})`;
+    } catch {
+      return `Request failed (${response.status})`;
+    }
+  }
+}
+
+async function supabaseRequest(path, { method = "GET", accessToken = "", body, headers = {} } = {}) {
+  const config = getSyncConfig();
+  if (!config.supabaseUrl || !config.supabaseAnonKey) {
+    throw new Error("Scenario sync is not configured");
+  }
+  if (typeof fetch !== "function") {
+    throw new Error("This browser does not support sync requests");
+  }
+
+  const requestHeaders = {
+    apikey: config.supabaseAnonKey,
+    ...headers,
+  };
+  if (accessToken) requestHeaders.Authorization = `Bearer ${accessToken}`;
+  if (body !== undefined && !requestHeaders["Content-Type"]) {
+    requestHeaders["Content-Type"] = "application/json";
+  }
+
+  const response = await fetch(`${config.supabaseUrl}${path}`, {
+    method,
+    headers: requestHeaders,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(await readSupabaseError(response));
+  }
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function sendScenarioSyncMagicLink(email) {
+  return supabaseRequest("/auth/v1/otp", {
+    method: "POST",
+    body: {
+      email,
+      create_user: true,
+      email_redirect_to: getSyncRedirectUrl(),
+    },
+  });
+}
+
+async function refreshScenarioSyncSession(session) {
+  if (!session?.refreshToken) return null;
+  try {
+    const payload = await supabaseRequest("/auth/v1/token?grant_type=refresh_token", {
+      method: "POST",
+      body: { refresh_token: session.refreshToken },
+    });
+    const nextSession = extractSyncSessionFromAuthPayload(payload);
+    return writeSyncSession(nextSession);
+  } catch {
+    clearSyncSession();
+    return null;
+  }
+}
+
+async function ensureScenarioSyncSession() {
+  const authParams = readSyncAuthParamsFromUrl();
+  if (authParams.session) {
+    const sessionFromUrl = writeSyncSession(authParams.session);
+    clearSyncAuthParamsFromUrl();
+    return sessionFromUrl;
+  }
+  if (authParams.error) {
+    clearSyncAuthParamsFromUrl();
+    throw new Error(authParams.error);
+  }
+
+  const session = readSyncSession();
+  if (!session) return null;
+  if (!session.expiresAt || session.expiresAt > Date.now() + SYNC_STATUS_REFRESH_SKEW_MS) {
+    return session;
+  }
+  return refreshScenarioSyncSession(session);
+}
+
+function convertCloudScenarioRecord(record) {
+  const name = String(record?.name || "").trim();
+  if (!name || !record?.state || typeof record.state !== "object") return null;
+  return {
+    name,
+    scenario: {
+      savedAt: record.saved_at || new Date().toISOString(),
+      state: record.state,
+      linkedWeightOverrides: sanitizeLinkedWeightOverrides(record.linked_weight_overrides || {}),
+    },
+  };
+}
+
+async function fetchCloudNamedScenarios(session) {
+  const rows = await supabaseRequest(
+    "/rest/v1/scenarios?select=name,saved_at,state,linked_weight_overrides&order=saved_at.desc",
+    {
+      method: "GET",
+      accessToken: session?.accessToken || "",
+    },
+  );
+  const scenarios = {};
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const converted = convertCloudScenarioRecord(row);
+    if (converted) scenarios[converted.name] = converted.scenario;
+  });
+  return scenarios;
+}
+
+async function upsertCloudNamedScenario(session, name, scenario) {
+  if (!session?.user?.id) throw new Error("Sign in again to sync scenarios");
+  await supabaseRequest("/rest/v1/scenarios?on_conflict=user_id,name", {
+    method: "POST",
+    accessToken: session.accessToken,
+    headers: {
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: [
+      {
+        user_id: session.user.id,
+        name,
+        saved_at: scenario.savedAt || new Date().toISOString(),
+        app_version: APP_VERSION,
+        state: scenario.state,
+        linked_weight_overrides: sanitizeLinkedWeightOverrides(scenario.linkedWeightOverrides || {}),
+      },
+    ],
+  });
+}
+
+async function deleteCloudNamedScenario(session, name) {
+  await supabaseRequest(`/rest/v1/scenarios?name=eq.${encodeURIComponent(name)}`, {
+    method: "DELETE",
+    accessToken: session?.accessToken || "",
+    headers: {
+      Prefer: "return=minimal",
+    },
+  });
+}
+
+async function syncNamedScenariosBidirectional(session) {
+  const localScenarios = readNamedScenarios();
+  const remoteScenarios = await fetchCloudNamedScenarios(session);
+  const mergedScenarios = mergeNamedScenarioMaps(localScenarios, remoteScenarios);
+  writeNamedScenarios(mergedScenarios);
+
+  const names = new Set([...Object.keys(localScenarios), ...Object.keys(remoteScenarios)]);
+  for (const name of names) {
+    const localScenario = localScenarios[name];
+    const remoteScenario = remoteScenarios[name];
+    if (!localScenario) continue;
+    if (!remoteScenario || getScenarioSavedAtValue(localScenario) > getScenarioSavedAtValue(remoteScenario)) {
+      await upsertCloudNamedScenario(session, name, localScenario);
+    }
+  }
+
+  return {
+    mergedScenarios,
+    localCount: Object.keys(localScenarios).length,
+    remoteCount: Object.keys(remoteScenarios).length,
+    mergedCount: Object.keys(mergedScenarios).length,
+  };
+}
+
 function sanitizeLinkedWeightOverrides(raw) {
   const next = {};
   if (!raw || typeof raw !== "object") return next;
@@ -5321,16 +5692,40 @@ function bindNamedScenarios() {
   const importFileEl = document.querySelector("#scenario-import-file");
   const deleteBtn = document.querySelector("#scenario-delete");
   const statusEl = document.querySelector("#scenario-status");
-  if (!nameEl || !selectEl || !saveBtn || !loadBtn || !exportBtn || !importBtn || !importFileEl || !deleteBtn || !statusEl) return;
+  const syncEmailEl = document.querySelector("#sync-email");
+  const syncSignInBtn = document.querySelector("#sync-sign-in");
+  const syncNowBtn = document.querySelector("#sync-now");
+  const syncSignOutBtn = document.querySelector("#sync-sign-out");
+  const syncAccountEl = document.querySelector("#sync-account");
+  const syncStatusEl = document.querySelector("#sync-status");
+  if (
+    !nameEl ||
+    !selectEl ||
+    !saveBtn ||
+    !loadBtn ||
+    !exportBtn ||
+    !importBtn ||
+    !importFileEl ||
+    !deleteBtn ||
+    !statusEl ||
+    !syncEmailEl ||
+    !syncSignInBtn ||
+    !syncNowBtn ||
+    !syncSignOutBtn ||
+    !syncAccountEl ||
+    !syncStatusEl
+  ) {
+    return;
+  }
 
-  const setStatus = (message = "", tone = "") => {
-    statusEl.textContent = message;
-    if (tone) {
-      statusEl.dataset.tone = tone;
-    } else {
-      delete statusEl.dataset.tone;
-    }
+  const setMessage = (el, message = "", tone = "") => {
+    el.textContent = message;
+    if (tone) el.dataset.tone = tone;
+    else delete el.dataset.tone;
   };
+  const setStatus = (message = "", tone = "") => setMessage(statusEl, message, tone);
+  const setSyncStatus = (message = "", tone = "") => setMessage(syncStatusEl, message, tone);
+  const setSyncAccount = (message = "", tone = "") => setMessage(syncAccountEl, message, tone);
 
   const populateScenarioOptions = (selectedName = "") => {
     const scenarios = readNamedScenarios();
@@ -5361,7 +5756,46 @@ function bindNamedScenarios() {
     scenario.state &&
     typeof scenario.state === "object";
 
-  saveBtn.addEventListener("click", () => {
+  const refreshSyncUi = async (sessionOverride) => {
+    const configured = isSyncConfigured();
+    const session = sessionOverride === undefined ? readSyncSession() : sessionOverride;
+    syncEmailEl.disabled = !configured;
+    syncNowBtn.disabled = !configured || !session;
+    syncSignOutBtn.disabled = !configured || !session;
+    if (!configured) {
+      setSyncAccount("Sync not configured. Add Supabase URL and anon key to sync-config.js.", "");
+      return;
+    }
+    if (session?.user?.email) {
+      syncEmailEl.value = syncEmailEl.value.trim() || session.user.email;
+      setSyncAccount(`Signed in as ${session.user.email}`, "success");
+      return;
+    }
+    setSyncAccount("Not signed in. Send a magic link to sync scenarios across devices.", "");
+  };
+
+  const syncScenariosNow = async ({ showStatus = true } = {}) => {
+    if (!isSyncConfigured()) {
+      if (showStatus) setSyncStatus("Sync not configured. Add Supabase URL and anon key to sync-config.js.", "error");
+      await refreshSyncUi(null);
+      return null;
+    }
+    const session = await ensureScenarioSyncSession();
+    if (!session) {
+      if (showStatus) setSyncStatus("Sign in first to sync scenarios.", "error");
+      await refreshSyncUi(null);
+      return null;
+    }
+    if (showStatus) setSyncStatus("Syncing scenarios...", "");
+    const selectedBeforeSync = String(selectEl.value || "").trim();
+    const result = await syncNamedScenariosBidirectional(session);
+    populateScenarioOptions(selectedBeforeSync);
+    await refreshSyncUi(session);
+    if (showStatus) setSyncStatus(`Synced ${result.mergedCount} scenarios.`, "success");
+    return result;
+  };
+
+  saveBtn.addEventListener("click", async () => {
     const name = String(nameEl.value || "").trim();
     if (!name) {
       setStatus("Enter a scenario name first.", "error");
@@ -5377,6 +5811,20 @@ function bindNamedScenarios() {
     populateScenarioOptions(name);
     selectEl.value = name;
     setStatus(`Saved scenario: ${name}`, "success");
+    if (!isSyncConfigured()) return;
+    try {
+      const session = await ensureScenarioSyncSession();
+      if (!session) {
+        setSyncStatus("Saved locally. Sign in to sync this scenario.", "");
+        await refreshSyncUi(null);
+        return;
+      }
+      await upsertCloudNamedScenario(session, name, scenarios[name]);
+      setSyncStatus(`Synced scenario: ${name}`, "success");
+      await refreshSyncUi(session);
+    } catch (error) {
+      setSyncStatus(`Saved locally. ${String(error?.message || "Unable to sync scenario.")}`, "error");
+    }
   });
 
   loadBtn.addEventListener("click", () => {
@@ -5413,8 +5861,8 @@ function bindNamedScenarios() {
     }
 
     const exportPayload = {
-      type: "performance-calculators-scenario",
-      version: 1,
+      type: SYNC_SCENARIO_FILE_TYPE,
+      version: SYNC_SCENARIO_FILE_VERSION,
       appVersion: APP_VERSION,
       exportedAt: new Date().toISOString(),
       scenario: {
@@ -5455,8 +5903,8 @@ function bindNamedScenarios() {
       const importedScenario = payload?.scenario;
       const importedName = String(importedScenario?.name || "").trim();
       if (
-        payload?.type !== "performance-calculators-scenario" ||
-        payload?.version !== 1 ||
+        payload?.type !== SYNC_SCENARIO_FILE_TYPE ||
+        payload?.version !== SYNC_SCENARIO_FILE_VERSION ||
         !importedName ||
         !isValidScenarioRecord(importedScenario)
       ) {
@@ -5474,6 +5922,21 @@ function bindNamedScenarios() {
       selectEl.value = importedName;
       nameEl.value = importedName;
       setStatus(`Imported scenario: ${importedName}`, "success");
+      if (isSyncConfigured()) {
+        try {
+          const session = await ensureScenarioSyncSession();
+          if (session) {
+            await upsertCloudNamedScenario(session, importedName, scenarios[importedName]);
+            setSyncStatus(`Synced imported scenario: ${importedName}`, "success");
+            await refreshSyncUi(session);
+          } else {
+            setSyncStatus("Imported locally. Sign in to sync this scenario.", "");
+            await refreshSyncUi(null);
+          }
+        } catch (error) {
+          setSyncStatus(`Imported locally. ${String(error?.message || "Unable to sync scenario.")}`, "error");
+        }
+      }
     } catch (error) {
       setStatus(error?.message === "Invalid scenario file" ? error.message : "Unable to import scenario file.", "error");
     } finally {
@@ -5481,7 +5944,7 @@ function bindNamedScenarios() {
     }
   });
 
-  deleteBtn.addEventListener("click", () => {
+  deleteBtn.addEventListener("click", async () => {
     const name = String(selectEl.value || nameEl.value || "").trim();
     if (!name) {
       setStatus("Choose a saved scenario to delete.", "error");
@@ -5498,6 +5961,20 @@ function bindNamedScenarios() {
     populateScenarioOptions();
     if (nameEl.value.trim() === name) nameEl.value = "";
     setStatus(`Deleted scenario: ${name}`, "success");
+    if (!isSyncConfigured()) return;
+    try {
+      const session = await ensureScenarioSyncSession();
+      if (!session) {
+        setSyncStatus("Deleted locally. Sign in to sync deletions.", "");
+        await refreshSyncUi(null);
+        return;
+      }
+      await deleteCloudNamedScenario(session, name);
+      setSyncStatus(`Deleted synced scenario: ${name}`, "success");
+      await refreshSyncUi(session);
+    } catch (error) {
+      setSyncStatus(`Deleted locally. ${String(error?.message || "Unable to sync deletion.")}`, "error");
+    }
   });
 
   selectEl.addEventListener("change", () => {
@@ -5505,7 +5982,60 @@ function bindNamedScenarios() {
     setStatus("");
   });
 
+  syncEmailEl.addEventListener("input", () => {
+    setSyncStatus("");
+  });
+
+  syncSignInBtn.addEventListener("click", async () => {
+    const email = String(syncEmailEl.value || "").trim();
+    if (!isSyncConfigured()) {
+      setSyncStatus("Sync not configured. Add Supabase URL and anon key to sync-config.js.", "error");
+      await refreshSyncUi(null);
+      return;
+    }
+    if (!email) {
+      setSyncStatus("Enter the email address you want to use for sync.", "error");
+      return;
+    }
+    try {
+      setSyncStatus("Sending sign-in link...", "");
+      await sendScenarioSyncMagicLink(email);
+      setSyncStatus(`Sign-in link sent to ${email}. Open it on this device to enable sync.`, "success");
+    } catch (error) {
+      setSyncStatus(String(error?.message || "Unable to send sign-in link."), "error");
+    }
+  });
+
+  syncNowBtn.addEventListener("click", async () => {
+    try {
+      await syncScenariosNow({ showStatus: true });
+    } catch (error) {
+      setSyncStatus(String(error?.message || "Unable to sync scenarios."), "error");
+    }
+  });
+
+  syncSignOutBtn.addEventListener("click", async () => {
+    clearSyncSession();
+    await refreshSyncUi(null);
+    setSyncStatus("Signed out of scenario sync on this device.", "success");
+  });
+
   populateScenarioOptions();
+  void (async () => {
+    try {
+      const session = await ensureScenarioSyncSession();
+      await refreshSyncUi(session);
+      if (session) {
+        setSyncStatus("Syncing scenarios...", "");
+        await syncScenariosNow({ showStatus: true });
+      } else {
+        setSyncStatus("", "");
+      }
+    } catch (error) {
+      await refreshSyncUi(null);
+      setSyncStatus(String(error?.message || "Unable to initialize scenario sync."), "error");
+    }
+  })();
 }
 
 function setAltFlRangeLabels() {

@@ -1,5 +1,5 @@
 {
-  "id": "/",
+  "id": "./",
   "name": "Performance Calculators",
   "short_name": "Performance Calc",
   "description": "B787 performance calculators with offline support and saved inputs.",

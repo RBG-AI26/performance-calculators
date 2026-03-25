@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.8.3</p>
+        <p class="app-version" id="app-version">Version v7.8.4</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -59,6 +59,20 @@
               <button type="button" id="scenario-import" class="secondary-button">Import</button>
               <button type="button" id="scenario-delete" class="secondary-button">Delete</button>
               <input type="file" id="scenario-import-file" class="sr-only" accept=".json,application/json" />
+            </div>
+            <div class="scenario-sync">
+              <div class="scenario-sync-title">Scenario Sync</div>
+              <label>
+                Sync Email
+                <input type="email" id="sync-email" value="" placeholder="name@example.com" autocomplete="email" />
+              </label>
+              <div class="scenario-actions scenario-sync-actions">
+                <button type="button" id="sync-sign-in" class="secondary-button">Send Sign-In Link</button>
+                <button type="button" id="sync-now" class="secondary-button">Sync Now</button>
+                <button type="button" id="sync-sign-out" class="secondary-button">Sign Out</button>
+              </div>
+              <div id="sync-account" class="scenario-status"></div>
+              <div id="sync-status" class="scenario-status" aria-live="polite"></div>
             </div>
             <div id="scenario-status" class="scenario-status" aria-live="polite"></div>
           </div>
@@ -691,6 +705,7 @@
     <script src="./flaps_up_data.js"></script>
     <script src="./diversion_data.js"></script>
     <script src="./go_around_data.js"></script>
+    <script src="./sync-config.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

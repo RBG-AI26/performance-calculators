@@ -1,9 +1,10 @@
-const CACHE_NAME = "performance-calculators-v23";
+const CACHE_NAME = "performance-calculators-v24";
 const APP_SHELL_ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./sync-config.js",
   "./data.js",
   "./lrc_data.js",
   "./lrc_altitude_limits_data.js",
