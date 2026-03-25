@@ -660,14 +660,27 @@ button:hover {
 }
 
 .result-row-stack {
-  grid-template-columns: 1fr;
+  display: block;
   gap: 0.15rem;
+  min-width: 0;
+}
+
+.result-row-stack .result-key {
+  display: block;
+  margin-bottom: 0.15rem;
+  overflow-wrap: normal;
 }
 
 .result-row-stack .result-value {
+  display: block;
+  min-width: 0;
   text-align: left;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.result-inline-sep {
+  opacity: 0.82;
 }
 
 .result-spacer {
