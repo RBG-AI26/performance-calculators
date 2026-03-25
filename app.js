@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.8.2";
+const APP_VERSION = "v7.8.3";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -2762,6 +2762,7 @@ function buildLoseTimeCruiseDescentOption({
   distanceToTodNm,
   descentIasKt,
   perfAdjust,
+  targetTimeMin,
 }) {
   if (!Number.isFinite(startWeightT) || startWeightT <= 0) {
     throw new Error("Current weight must be > 0");
@@ -2779,15 +2780,28 @@ function buildLoseTimeCruiseDescentOption({
     descentIasKt,
     cruiseMach: baselineCruise.mach,
   });
-  const targetTimeMin = baseline.totalTimeMin + requiredDelayMin;
+  const resolvedTargetTimeMin =
+    Number.isFinite(targetTimeMin) && targetTimeMin > 0 ? targetTimeMin : baseline.totalTimeMin + requiredDelayMin;
 
   if (requiredDelayMin <= 1e-9) {
     return {
       baseline,
       solution: baseline,
-      targetTimeMin,
+      targetTimeMin: resolvedTargetTimeMin,
       residualHoldMin: 0,
       requiredMach: baselineCruise.mach,
+      limitedByMaxMach: false,
+    };
+  }
+
+  if (baseline.totalTimeMin > resolvedTargetTimeMin) {
+    return {
+      baseline,
+      solution: baseline,
+      targetTimeMin: resolvedTargetTimeMin,
+      residualHoldMin: 0,
+      requiredMach: baselineCruise.mach,
+      limitedByMaxMach: true,
     };
   }
 
@@ -2801,13 +2815,14 @@ function buildLoseTimeCruiseDescentOption({
     cruiseMach: minimumMach,
   });
 
-  if (minimumMachSolution.totalTimeMin < targetTimeMin) {
+  if (minimumMachSolution.totalTimeMin < resolvedTargetTimeMin) {
     return {
       baseline,
       solution: minimumMachSolution,
-      targetTimeMin,
-      residualHoldMin: targetTimeMin - minimumMachSolution.totalTimeMin,
+      targetTimeMin: resolvedTargetTimeMin,
+      residualHoldMin: resolvedTargetTimeMin - minimumMachSolution.totalTimeMin,
       requiredMach: minimumMach,
+      limitedByMaxMach: false,
     };
   }
 
@@ -2826,7 +2841,7 @@ function buildLoseTimeCruiseDescentOption({
       descentIasKt,
       cruiseMach: midMach,
     });
-    if (midSolution.totalTimeMin > targetTimeMin) {
+    if (midSolution.totalTimeMin > resolvedTargetTimeMin) {
       lowMach = midMach;
       lowSolution = midSolution;
     } else {
@@ -2836,16 +2851,18 @@ function buildLoseTimeCruiseDescentOption({
   }
 
   const solution =
-    Math.abs(lowSolution.totalTimeMin - targetTimeMin) <= Math.abs(highSolution.totalTimeMin - targetTimeMin)
+    Math.abs(lowSolution.totalTimeMin - resolvedTargetTimeMin) <=
+    Math.abs(highSolution.totalTimeMin - resolvedTargetTimeMin)
       ? lowSolution
       : highSolution;
 
   return {
     baseline,
     solution,
-    targetTimeMin,
+    targetTimeMin: resolvedTargetTimeMin,
     residualHoldMin: 0,
     requiredMach: solution.cruiseMach,
+    limitedByMaxMach: false,
   };
 }
 
@@ -4843,11 +4860,15 @@ function bindLoseTime() {
             distanceToTodNm,
             descentIasKt,
             perfAdjust,
+            targetTimeMin: comparison.targetFixTime,
           });
           const optionDLevelChangeNote =
             levelChangeMode === "none"
               ? ""
               : "Option D uses Distance to TOD and estimated fix crossing altitude from the descent table, and does not apply the Level Change inputs";
+          const optionDMaxMachNote = optionD.limitedByMaxMach
+            ? "Option D cannot meet the target with the selected descent IAS; showing the fastest achievable profile at LRC Mach"
+            : "";
           optionDRows = [
             ["__spacer__", ""],
             ["__section__", "Option D (Cruise + Descent)"],
@@ -4856,7 +4877,7 @@ function bindLoseTime() {
             ["Option D Time", formatMinutes(optionD.solution.totalTimeMin + optionD.residualHoldMin)],
             [
               "Option D Delay Achieved",
-              `${format(optionD.solution.totalTimeMin + optionD.residualHoldMin - optionD.baseline.totalTimeMin, 2)} min`,
+              `${format(optionD.solution.totalTimeMin + optionD.residualHoldMin - comparison.baseline.timeToFixMin, 2)} min`,
             ],
             ["Option D Estimated Fix Crossing Altitude", `${format(optionD.solution.fixCrossingAltitudeFt, 0)} ft`],
             ["Option D Cruise / Initial Descent Mach", format(optionD.requiredMach, 3)],
@@ -4882,6 +4903,7 @@ function bindLoseTime() {
               `${format(optionD.solution.referenceDescentDistanceNm, 1)} NM / ${format(optionD.solution.referenceDescentTimeMin, 1)} min`,
             ],
             ["Option D Residual Hold at Fix", `${format(optionD.residualHoldMin, 2)} min`],
+            ...(optionDMaxMachNote ? [["__warning__", optionDMaxMachNote]] : []),
             ...(optionDLevelChangeNote ? [["__warning__", optionDLevelChangeNote]] : []),
           ];
         } catch (optionDError) {
