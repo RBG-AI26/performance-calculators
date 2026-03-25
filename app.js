@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.8.4";
+const APP_VERSION = "v7.8.5";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -3550,7 +3550,9 @@ async function sendScenarioSyncMagicLink(email) {
     body: {
       email,
       create_user: true,
-      email_redirect_to: getSyncRedirectUrl(),
+      options: {
+        email_redirect_to: getSyncRedirectUrl(),
+      },
     },
   });
 }
