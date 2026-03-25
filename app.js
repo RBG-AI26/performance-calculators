@@ -4866,21 +4866,26 @@ function bindLoseTime() {
             levelChangeMode === "none"
               ? ""
               : "Option D uses Distance to TOD and estimated fix crossing altitude from the descent table, and does not apply the Level Change inputs";
+          const optionDTimeMin = optionD.solution.totalTimeMin + optionD.residualHoldMin;
+          const optionDDelayAchievedMin = optionDTimeMin - comparison.baseline.timeToFixMin;
           const optionDMaxMachNote = optionD.limitedByMaxMach
-            ? "Option D cannot meet the target with the selected descent IAS; showing the fastest achievable profile at LRC Mach"
+            ? `Option D has no exact solution for the selected descent IAS. The target is ${format(requiredDelayMin, 2)} min delay, but the minimum achievable delay at LRC Mach is ${format(optionDDelayAchievedMin, 2)} min`
             : "";
           optionDRows = [
             ["__spacer__", ""],
             ["__section__", "Option D (Cruise + Descent)"],
             ["Option D Baseline Time to Fix", formatMinutes(optionD.baseline.totalTimeMin)],
             ["Option D Time to Fix (target)", formatMinutes(optionD.targetTimeMin)],
-            ["Option D Time", formatMinutes(optionD.solution.totalTimeMin + optionD.residualHoldMin)],
+            [optionD.limitedByMaxMach ? "Option D Minimum Achievable Time" : "Option D Time", formatMinutes(optionDTimeMin)],
             [
-              "Option D Delay Achieved",
-              `${format(optionD.solution.totalTimeMin + optionD.residualHoldMin - comparison.baseline.timeToFixMin, 2)} min`,
+              optionD.limitedByMaxMach ? "Option D Minimum Achievable Delay" : "Option D Delay Achieved",
+              `${format(optionDDelayAchievedMin, 2)} min`,
             ],
             ["Option D Estimated Fix Crossing Altitude", `${format(optionD.solution.fixCrossingAltitudeFt, 0)} ft`],
-            ["Option D Cruise / Initial Descent Mach", format(optionD.requiredMach, 3)],
+            [
+              optionD.limitedByMaxMach ? "Option D Minimum-Delay Cruise / Initial Descent Mach" : "Option D Cruise / Initial Descent Mach",
+              format(optionD.requiredMach, 3),
+            ],
             [
               "Option D Descent IAS (>10000 / <=10000)",
               `${format(optionD.solution.descentIasAbove10kKt, 0)} / ${format(optionD.solution.descentIasBelow10kKt, 0)} kt`,
