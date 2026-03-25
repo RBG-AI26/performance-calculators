@@ -163,21 +163,11 @@ const loseTimeCruiseDescent = context.buildLoseTimeCruiseDescentOption({
   distanceToTodNm: 80,
   descentIasKt: 280,
   perfAdjust: 0,
-  targetTimeMin: context.buildLoseTimeComparison({
-    distanceNm: 160,
-    startWeightT: 161,
-    startFl: 400,
-    requiredDelayMin: 2,
-    cruiseWindKt: 0,
-    holdWindKt: 0,
-    levelChange: { mode: "none", afterMin: 0, newFl: 390 },
-    perfAdjust: 0,
-  }).targetFixTime,
 });
 assertApprox(loseTimeCruiseDescent.baseline.totalTimeMin, 21.125938259130756, 1e-9, "Lose time option D baseline");
-assertApprox(loseTimeCruiseDescent.targetTimeMin, 21.704553935420467, 1e-9, "Lose time option D target");
-assertApprox(loseTimeCruiseDescent.solution.totalTimeMin, 21.70455393514127, 1e-9, "Lose time option D solution");
-assertApprox(loseTimeCruiseDescent.requiredMach, 0.8098554312483524, 1e-9, "Lose time option D required Mach");
+assertApprox(loseTimeCruiseDescent.targetTimeMin, 23.125938259130756, 1e-9, "Lose time option D target");
+assertApprox(loseTimeCruiseDescent.solution.totalTimeMin, 23.125938259211466, 1e-9, "Lose time option D solution");
+assertApprox(loseTimeCruiseDescent.requiredMach, 0.7353207804741569, 1e-9, "Lose time option D required Mach");
 assertApprox(loseTimeCruiseDescent.solution.descentIasBelow10kKt, 250, 1e-9, "Lose time option D low IAS cap");
 assertApprox(
   loseTimeCruiseDescent.solution.fixCrossingAltitudeFt,
@@ -196,20 +186,10 @@ const loseTimeCruiseDescentSlow = context.buildLoseTimeCruiseDescentOption({
   distanceToTodNm: 80,
   descentIasKt: 220,
   perfAdjust: 0,
-  targetTimeMin: context.buildLoseTimeComparison({
-    distanceNm: 160,
-    startWeightT: 161,
-    startFl: 400,
-    requiredDelayMin: 2,
-    cruiseWindKt: 0,
-    holdWindKt: 0,
-    levelChange: { mode: "none", afterMin: 0, newFl: 390 },
-    perfAdjust: 0,
-  }).targetFixTime,
 });
 assertApprox(loseTimeCruiseDescentSlow.solution.descentIasBelow10kKt, 220, 1e-9, "Lose time option D low IAS match");
-assertApprox(loseTimeCruiseDescentSlow.solution.totalTimeMin, 23.93044387808702, 1e-9, "Lose time option D slow solution");
-assert.equal(loseTimeCruiseDescentSlow.limitedByMaxMach, true, "Lose time option D max Mach limited");
+assertApprox(loseTimeCruiseDescentSlow.solution.totalTimeMin, 25.930443877329978, 1e-9, "Lose time option D slow solution");
+assert.equal(loseTimeCruiseDescentSlow.limitedByMaxMach, false, "Lose time option D slow normal solution");
 
 const diversionLow = context.diversionLrcFuelByBand("low", 400, -50, 28000, 180, 0, 0, 0);
 assertApprox(diversionLow.adjustedFuelKg, 4639.375, 1e-6, "Low diversion flight fuel");

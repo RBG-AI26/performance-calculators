@@ -4860,14 +4860,13 @@ function bindLoseTime() {
             distanceToTodNm,
             descentIasKt,
             perfAdjust,
-            targetTimeMin: comparison.targetFixTime,
           });
           const optionDLevelChangeNote =
             levelChangeMode === "none"
               ? ""
               : "Option D uses Distance to TOD and estimated fix crossing altitude from the descent table, and does not apply the Level Change inputs";
           const optionDTimeMin = optionD.solution.totalTimeMin + optionD.residualHoldMin;
-          const optionDDelayAchievedMin = optionDTimeMin - comparison.baseline.timeToFixMin;
+          const optionDDelayAchievedMin = optionDTimeMin - optionD.baseline.totalTimeMin;
           const optionDMaxMachNote = optionD.limitedByMaxMach
             ? `Option D has no exact solution for the selected descent IAS. The target is ${format(requiredDelayMin, 2)} min delay, but the minimum achievable delay at LRC Mach is ${format(optionDDelayAchievedMin, 2)} min`
             : "";
