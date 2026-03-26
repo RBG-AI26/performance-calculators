@@ -4583,6 +4583,7 @@ function bindTripFuel() {
           ? [
               ["Current Weight", `${format(tripWeightContext.currentWeightT, 1)} t`],
               ["Solved Landing Weight", `${format(tripWeightContext.solvedLandingWeightT, 1)} t`],
+              ["__spacer__", ""],
             ]
           : []),
         ["Flight Fuel", `${format(result.flightFuelKg, 0)} kg`],
@@ -5086,12 +5087,6 @@ function bindEngineOut() {
         renderRows(driftOut, [
           ...(uniqueWarnings.length ? [["__warning__", `Input warning: ${uniqueWarnings.join(" | ")}`]] : []),
           [
-            "ISA Deviation Used",
-            driftLevelOff.clampedToIsa10
-              ? `ISA+${format(driftLevelOff.isaDeviationCUsed, 0)} (input ISA+${format(isaDeviationCInput, 1)})`
-              : `ISA+${format(driftLevelOff.isaDeviationCUsed, 1)}`,
-          ],
-          [
             "SE LRC Altitude Capability (100 fpm)",
             `${format(seLrcCapability.altitudeFt, 0)} ft (FL${format(seLrcCapability.altitudeFt / 100, 0)})`,
           ],
@@ -5154,10 +5149,6 @@ function bindEngineOut() {
         const eoDiversion = eoDiversionFuelTime(gnmInput, windInputKt, altitudeFt, weightInputT, perfAdjust);
         renderRows(diversionOut, [
           ...(eoDiversion.warnings.length ? [["__warning__", `Input warning: ${eoDiversion.warnings.join(" | ")}`]] : []),
-          [
-            "EO Diversion Altitude Used",
-            `${format(eoDiversion.usedInputs.altitudeFt, 0)} ft (FL${format(eoDiversion.usedInputs.altitudeFt / 100, 0)})`,
-          ],
           ["EO Diversion Air Distance (ANM)", `${format(eoDiversion.anm, 0)} nm`],
           ["EO Diversion Flight Fuel", `${format(eoDiversion.flightFuelKg, 0)} kg`],
           ["EO Diversion Time", `${format(eoDiversion.timeMinutes, 1)} min (${formatMinutes(eoDiversion.timeMinutes)})`],
@@ -5681,7 +5672,6 @@ function bindLoseTime() {
               `${format(optionDDelayAchievedMin, 2)} min`,
             ],
             ["Option D Estimated Fix Crossing Altitude", `${format(optionD.solution.fixCrossingAltitudeFt, 0)} ft`],
-            ["Option D ISA Deviation / Temperature Used", `${format(optionD.isaDeviationC, 1)} °C / ${format(optionD.temperatureC, 1)} °C`],
             [
               optionD.inputMode === "mach"
                 ? "Option D Cruise / Initial Descent Mach"
@@ -5708,10 +5698,6 @@ function bindLoseTime() {
                   [
                     "Option D Cruise Time / Descent Time",
                     `${format(optionD.solution.cruiseTimeMin, 1)} / ${format(optionD.solution.descentTimeMin, 1)} min`,
-                  ],
-                  [
-                    "Option D Descent Segment Split",
-                    `Mach ${format(optionD.solution.machSegmentDistanceNm, 1)} NM (${format(optionD.solution.machSegmentTimeMin, 1)} min), IAS ${format(optionD.solution.iasHighSegmentDistanceNm, 1)} NM (${format(optionD.solution.iasHighSegmentTimeMin, 1)} min), Low ${format(optionD.solution.iasLowSegmentDistanceNm, 1)} NM (${format(optionD.solution.iasLowSegmentTimeMin, 1)} min)`,
                   ],
                   [
                     "Option D Reference Descent Distance / Time",
@@ -5758,8 +5744,6 @@ function bindLoseTime() {
         : [["Required Speed Solution", comparison.optionCError || "Unable to compute required speed"]];
 
       renderRows(out, [
-        ["Start FL (used)", `FL${format(startFl, 0)}`],
-        ["Level Change (used)", levelChangeSummary],
         ["Required Delay", `${format(requiredDelayMin, 2)} min`],
         ["Baseline LRC Time to Fix", formatMinutes(comparison.baseline.timeToFixMin)],
         ["Baseline LRC Fuel to Fix", `${format(comparison.baseline.fuelBurnKg, 0)} kg`],
