@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.10.2";
+const APP_VERSION = "v7.10.3";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -1587,6 +1587,7 @@ function calculateTripFuelEnhanced({
   weight,
   perfAdjust,
   taxiKg = 0,
+  plannedAddKg = 0,
   appKg = FIXED_ALLOWANCE_KG,
   arrivalFuelKg = 0,
   wxHoldKg = 0,
@@ -1602,20 +1603,22 @@ function calculateTripFuelEnhanced({
   const resolvedFrfKg = Number.isFinite(frfKg) ? frfKg : frfAutoKg;
   const resolvedContingencyKg = Number.isFinite(contingencyKg) ? contingencyKg : contingencyAutoKg;
   const totalFuelKg =
-    taxiKg +
     core.flightFuelKg +
-    resolvedFrfKg +
-    resolvedContingencyKg +
+    appKg +
     arrivalFuelKg +
     wxHoldKg +
     divnNdaKg +
     divHoldKg +
+    resolvedContingencyKg +
+    resolvedFrfKg +
     reqAdditionalKg +
-    appKg;
+    taxiKg +
+    plannedAddKg;
 
   return {
     ...core,
     taxiKg,
+    plannedAddKg,
     appKg,
     arrivalFuelKg,
     wxHoldKg,
@@ -4362,6 +4365,7 @@ function bindTripFuel() {
   const weightModeEl = document.querySelector("#trip-weight-mode");
   const weightEl = document.querySelector("#trip-weight");
   const taxiEl = document.querySelector("#trip-taxi");
+  const plannedAddEl = document.querySelector("#trip-planned-add");
   const appEl = document.querySelector("#trip-app");
   const arrivalFuelModeEl = document.querySelector("#trip-arrival-fuel-mode");
   const arrivalFuelEl = document.querySelector("#trip-arrival-fuel");
@@ -4385,6 +4389,7 @@ function bindTripFuel() {
     !weightModeEl ||
     !weightEl ||
     !taxiEl ||
+    !plannedAddEl ||
     !appEl ||
     !arrivalFuelModeEl ||
     !arrivalFuelEl ||
@@ -4487,6 +4492,7 @@ function bindTripFuel() {
       const landingWeightT = tripWeightContext.solvedLandingWeightT;
 
       const taxiKg = resolveKgInput("Taxi Fuel", taxiEl);
+      const plannedAddKg = resolveKgInput("Planned Add", plannedAddEl);
       const appKg = resolveKgInput("Approach Fuel", appEl);
 
       const frfFuelFlowKgHr = getHoldFuelFlowKgHr(landingWeightT, FRF_HOLD_ALTITUDE_FT, perfAdjust);
@@ -4497,6 +4503,7 @@ function bindTripFuel() {
         weight: landingWeightT,
         perfAdjust,
         taxiKg,
+        plannedAddKg,
         appKg,
       });
       const arrivalFuelKg = resolveMixedEntryKg({
@@ -4539,7 +4546,7 @@ function bindTripFuel() {
         autoKg: autoBase.frfAutoKg,
       });
       const reqAdditionalKg = resolveMixedEntryKg({
-        label: "Rqd Additional/Other Hold",
+        label: "Rqd Additional",
         modeEl: reqAdditionalModeEl,
         valueEl: reqAdditionalEl,
         minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
@@ -4559,6 +4566,7 @@ function bindTripFuel() {
         contingencyKg,
         frfKg,
         reqAdditionalKg,
+        plannedAddKg,
       });
       syncLinkedStartWeights(weightMode === "current" ? tripWeightContext.currentWeightT : landingWeightT + result.flightFuelKg / 1000);
 
@@ -4578,16 +4586,17 @@ function bindTripFuel() {
               ["Implied Flight Fuel Burn", `${format(tripWeightContext.impliedFlightFuelBurnKg, 0)} kg`],
             ]
           : []),
-        ["Taxi Fuel", `${format(result.taxiKg, 0)} kg`],
         ["Flight Fuel", `${format(result.flightFuelKg, 0)} kg`],
-        ["FRF", `${format(result.frfKg, 0)} kg`],
-        ["Cont", `${format(result.contingencyKg, 0)} kg`],
+        ["Approach Fuel", `${format(result.appKg, 0)} kg`],
         ["Arrival Fuel", `${format(result.arrivalFuelKg, 0)} kg`],
         ["Wx Hold", `${format(result.wxHoldKg, 0)} kg`],
         ["Divn/NDA", `${format(result.divnNdaKg, 0)} kg`],
         ["Div Hold", `${format(result.divHoldKg, 0)} kg`],
-        ["Rqd Additional/Other Hold", `${format(result.reqAdditionalKg, 0)} kg`],
-        ["Approach Fuel", `${format(result.appKg, 0)} kg`],
+        ["Cont", `${format(result.contingencyKg, 0)} kg`],
+        ["FRF", `${format(result.frfKg, 0)} kg`],
+        ["Rqd Additional", `${format(result.reqAdditionalKg, 0)} kg`],
+        ["Taxi Fuel", `${format(result.taxiKg, 0)} kg`],
+        ["Planned Add", `${format(result.plannedAddKg, 0)} kg`],
         ["Total Fuel Required", `${format(result.totalFuelKg, 0)} kg`],
         ["Time", formatMinutes(result.timeMinutes)],
       ];

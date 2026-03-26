@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.10.2</p>
+        <p class="app-version" id="app-version">Version v7.10.3</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -84,7 +84,7 @@
       <section class="panel" data-family="fuel" aria-labelledby="trip-fuel-heading">
         <h2 id="trip-fuel-heading">Trip Fuel</h2>
         <p class="module-note">Short-trip/LRC unified fuel model with ANM blending from 600-800</p>
-        <p class="dpa-assumptions">1500 ft basis: Arrival Fuel, Divn/NDA, FRF. 20000 ft basis: Wx Hold, Div Hold, Rqd Additional/Other Hold.</p>
+        <p class="dpa-assumptions">1500 ft basis: Arrival Fuel, Divn/NDA, FRF. 20000 ft basis: Wx Hold, Div Hold, Rqd Additional.</p>
         <form id="trip-fuel-form" class="trip-fuel-form">
           <div class="trip-fuel-core-inputs">
             <label>
@@ -123,11 +123,6 @@
             </label>
           </div>
           <div class="dpa-entry-list">
-            <div class="dpa-entry-row">
-              <label class="dpa-entry-label" for="trip-taxi">Taxi Fuel</label>
-              <span class="dpa-static-chip">kg</span>
-              <input type="number" step="1" min="0" id="trip-taxi" value="0" />
-            </div>
             <div class="dpa-entry-row">
               <label class="dpa-entry-label" for="trip-app">Approach Fuel</label>
               <span class="dpa-static-chip">kg</span>
@@ -206,7 +201,7 @@
               <input type="number" step="1" min="0" id="trip-frf" value="" placeholder="Auto" />
             </div>
             <div class="dpa-entry-row">
-              <label class="dpa-entry-label" for="trip-req-additional">Rqd Additional/Other Hold</label>
+              <label class="dpa-entry-label" for="trip-req-additional">Rqd Additional</label>
               <select id="trip-req-additional-mode" class="sr-only">
                 <option value="kg" selected>kg</option>
                 <option value="min">min</option>
@@ -216,6 +211,16 @@
                 <button type="button" data-mode-value="min">min</button>
               </div>
               <input type="number" step="1" min="0" id="trip-req-additional" value="0" />
+            </div>
+            <div class="dpa-entry-row">
+              <label class="dpa-entry-label" for="trip-taxi">Taxi Fuel</label>
+              <span class="dpa-static-chip">kg</span>
+              <input type="number" step="1" min="0" id="trip-taxi" value="0" />
+            </div>
+            <div class="dpa-entry-row">
+              <label class="dpa-entry-label" for="trip-planned-add">Planned Add</label>
+              <span class="dpa-static-chip">kg</span>
+              <input type="number" step="1" min="0" id="trip-planned-add" value="0" />
             </div>
           </div>
           <div class="dpa-actions">
@@ -614,6 +619,22 @@
             Wind (kt)
             <input type="number" step="1" id="lt-wind" value="0" />
           </label>
+          <label>
+            Level Change
+            <select id="lt-level-change-mode">
+              <option value="none" selected>None</option>
+              <option value="climb">Climb</option>
+              <option value="descent">Descent</option>
+            </select>
+          </label>
+          <label>
+            Change After (min)
+            <input type="number" step="1" id="lt-change-after-min" value="0" />
+          </label>
+          <label>
+            New Alt/FL <span class="label-note" id="lt-new-fl-range"></span>
+            <input type="number" step="1" id="lt-new-fl" value="390" />
+          </label>
           <div class="grid-subheading">Cruise + Descent (Option D)</div>
           <label>
             Distance to TOD (NM)
@@ -630,22 +651,6 @@
           <label>
             Temperature (°C)
             <input type="number" step="0.1" id="lt-optiond-temp" value="" />
-          </label>
-          <label>
-            Level Change
-            <select id="lt-level-change-mode">
-              <option value="none" selected>None</option>
-              <option value="climb">Climb</option>
-              <option value="descent">Descent</option>
-            </select>
-          </label>
-          <label>
-            Change After (min)
-            <input type="number" step="1" id="lt-change-after-min" value="0" />
-          </label>
-          <label>
-            New Alt/FL <span class="label-note" id="lt-new-fl-range"></span>
-            <input type="number" step="1" id="lt-new-fl" value="390" />
           </label>
           <button type="submit">Calculate</button>
         </form>
