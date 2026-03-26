@@ -3437,6 +3437,12 @@ function fieldIsBlank(value) {
   return String(value ?? "").trim() === "";
 }
 
+function shouldDeferLiveSubmitForInput(el) {
+  if (!el) return false;
+  const type = String(el.type || "").toLowerCase();
+  return type === "number" && document.activeElement === el && fieldIsBlank(el.value);
+}
+
 function getPersistableFields() {
   return Array.from(document.querySelectorAll("input[id], select[id], textarea[id]")).filter(
     (el) => el.id && !NON_PERSISTED_FIELD_IDS.has(el.id),
@@ -4414,8 +4420,8 @@ function bindTripFuel() {
     return;
   }
 
-  const autoRecalculate = () => {
-    if (suppressAutoSubmit) return;
+  const autoRecalculate = (sourceEl = null) => {
+    if (suppressAutoSubmit || shouldDeferLiveSubmitForInput(sourceEl)) return;
     form.dispatchEvent(new Event("submit"));
   };
 
@@ -4478,8 +4484,8 @@ function bindTripFuel() {
     frfEl,
     reqAdditionalEl,
   ].forEach((el) => {
-    el.addEventListener("input", autoRecalculate);
-    el.addEventListener("change", autoRecalculate);
+    el.addEventListener("input", () => autoRecalculate(el));
+    el.addEventListener("change", () => autoRecalculate(el));
   });
 
   form.addEventListener("submit", (event) => {
@@ -4725,8 +4731,8 @@ function bindDpaCalculator() {
     return;
   }
 
-  const autoRecalculate = () => {
-    if (suppressAutoSubmit) return;
+  const autoRecalculate = (sourceEl = null) => {
+    if (suppressAutoSubmit || shouldDeferLiveSubmitForInput(sourceEl)) return;
     form.dispatchEvent(new Event("submit"));
   };
 
@@ -4764,8 +4770,8 @@ function bindDpaCalculator() {
     frfEl,
     reqAdditionalEl,
   ].forEach((el) => {
-    el.addEventListener("input", autoRecalculate);
-    el.addEventListener("change", autoRecalculate);
+    el.addEventListener("input", () => autoRecalculate(el));
+    el.addEventListener("change", () => autoRecalculate(el));
   });
 
   form.addEventListener("submit", (event) => {
@@ -5085,13 +5091,14 @@ function bindEngineOut() {
     const isaDevEl = document.querySelector("#eo-isa-dev");
     const driftGnmEl = document.querySelector("#eo-drift-gnm");
     const driftWindEl = document.querySelector("#eo-drift-wind");
-    const autoRecalculate = () => {
+    const autoRecalculate = (sourceEl = null) => {
+      if (shouldDeferLiveSubmitForInput(sourceEl)) return;
       driftForm.dispatchEvent(new Event("submit"));
     };
 
     [weightEl, isaDevEl, driftGnmEl, driftWindEl].forEach((el) => {
-      el.addEventListener("input", autoRecalculate);
-      el.addEventListener("change", autoRecalculate);
+      el.addEventListener("input", () => autoRecalculate(el));
+      el.addEventListener("change", () => autoRecalculate(el));
     });
 
     driftForm.addEventListener("submit", (event) => {
@@ -5179,13 +5186,14 @@ function bindEngineOut() {
     const eoDiversionGnmEl = document.querySelector("#eo-div-gnm");
     const eoDiversionWindEl = document.querySelector("#eo-div-wind");
     const eoDiversionAltEl = document.querySelector("#eo-div-alt");
-    const autoRecalculate = () => {
+    const autoRecalculate = (sourceEl = null) => {
+      if (shouldDeferLiveSubmitForInput(sourceEl)) return;
       diversionForm.dispatchEvent(new Event("submit"));
     };
 
     [eoDiversionWeightEl, eoDiversionGnmEl, eoDiversionWindEl, eoDiversionAltEl].forEach((el) => {
-      el.addEventListener("input", autoRecalculate);
-      el.addEventListener("change", autoRecalculate);
+      el.addEventListener("input", () => autoRecalculate(el));
+      el.addEventListener("change", () => autoRecalculate(el));
     });
 
     diversionForm.addEventListener("submit", (event) => {
@@ -5248,13 +5256,14 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
   const arrivalAllowanceEl = document.querySelector(fieldIds.arrivalMin);
   if (!gnmEl || !windEl || !altEl || !weightEl || !holdMinEl || !arrivalAllowanceEl) return;
 
-  const autoRecalculate = () => {
+  const autoRecalculate = (sourceEl = null) => {
+    if (shouldDeferLiveSubmitForInput(sourceEl)) return;
     form.dispatchEvent(new Event("submit"));
   };
 
   [gnmEl, windEl, altEl, weightEl, holdMinEl, arrivalAllowanceEl].forEach((el) => {
-    el.addEventListener("input", autoRecalculate);
-    el.addEventListener("change", autoRecalculate);
+    el.addEventListener("input", () => autoRecalculate(el));
+    el.addEventListener("change", () => autoRecalculate(el));
   });
 
   form.addEventListener("submit", (event) => {
@@ -5361,8 +5370,8 @@ function bindHolding() {
   let lastTempSource = "isa-dev";
   let suppressAutoSubmit = false;
 
-  const autoRecalculate = () => {
-    if (suppressAutoSubmit) return;
+  const autoRecalculate = (sourceEl = null) => {
+    if (suppressAutoSubmit || shouldDeferLiveSubmitForInput(sourceEl)) return;
     form.dispatchEvent(new Event("submit"));
   };
 
@@ -5378,27 +5387,27 @@ function bindHolding() {
 
   totalHoldEl.addEventListener("input", () => {
     chooseTimingSource("total");
-    autoRecalculate();
+    autoRecalculate(totalHoldEl);
   });
   totalHoldEl.addEventListener("change", () => {
     chooseTimingSource("total");
-    autoRecalculate();
+    autoRecalculate(totalHoldEl);
   });
   inboundLegEl.addEventListener("input", () => {
     chooseTimingSource("inbound");
-    autoRecalculate();
+    autoRecalculate(inboundLegEl);
   });
   inboundLegEl.addEventListener("change", () => {
     chooseTimingSource("inbound");
-    autoRecalculate();
+    autoRecalculate(inboundLegEl);
   });
   timingIsaDevEl.addEventListener("input", () => {
     lastTempSource = "isa-dev";
-    autoRecalculate();
+    autoRecalculate(timingIsaDevEl);
   });
   timingTempEl.addEventListener("input", () => {
     lastTempSource = "temp";
-    autoRecalculate();
+    autoRecalculate(timingTempEl);
   });
 
   [
@@ -5413,13 +5422,13 @@ function bindHolding() {
   ].forEach((selector) => {
     const el = document.querySelector(selector);
     if (!el) return;
-    el.addEventListener("input", autoRecalculate);
-    el.addEventListener("change", autoRecalculate);
+    el.addEventListener("input", () => autoRecalculate(el));
+    el.addEventListener("change", () => autoRecalculate(el));
   });
 
   [document.querySelector("#hold-side"), timingIsaDevEl, timingTempEl].forEach((el) => {
     if (!el) return;
-    el.addEventListener("change", autoRecalculate);
+    el.addEventListener("change", () => autoRecalculate(el));
   });
 
   form.addEventListener("submit", (event) => {
@@ -5917,8 +5926,8 @@ function bindConversion() {
   let lastSpeedSource = "ias";
   let suppressAutoSubmit = false;
 
-  function autoRecalculate() {
-    if (suppressAutoSubmit) return;
+  function autoRecalculate(sourceEl = null) {
+    if (suppressAutoSubmit || shouldDeferLiveSubmitForInput(sourceEl)) return;
     form.dispatchEvent(new Event("submit"));
   }
 
@@ -5937,25 +5946,25 @@ function bindConversion() {
     el.addEventListener("focus", () => setActiveSpeedSource(source));
     el.addEventListener("input", () => {
       setActiveSpeedSource(source);
-      autoRecalculate();
+      autoRecalculate(el);
     });
     el.addEventListener("change", () => {
       setActiveSpeedSource(source);
-      autoRecalculate();
+      autoRecalculate(el);
     });
   });
   isaDevEl.addEventListener("input", () => {
     lastTempSource = "isa-dev";
-    autoRecalculate();
+    autoRecalculate(isaDevEl);
   });
-  isaDevEl.addEventListener("change", autoRecalculate);
+  isaDevEl.addEventListener("change", () => autoRecalculate(isaDevEl));
   oatEl.addEventListener("input", () => {
     lastTempSource = "temp";
-    autoRecalculate();
+    autoRecalculate(oatEl);
   });
-  oatEl.addEventListener("change", autoRecalculate);
-  flEl.addEventListener("input", autoRecalculate);
-  flEl.addEventListener("change", autoRecalculate);
+  oatEl.addEventListener("change", () => autoRecalculate(oatEl));
+  flEl.addEventListener("input", () => autoRecalculate(flEl));
+  flEl.addEventListener("change", () => autoRecalculate(flEl));
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -6062,8 +6071,8 @@ function bindGoAround() {
   const icingPenaltyEl = document.querySelector("#go-around-icing-penalty");
   let suppressAutoSubmit = false;
 
-  const autoRecalculate = () => {
-    if (suppressAutoSubmit) return;
+  const autoRecalculate = (sourceEl = null) => {
+    if (suppressAutoSubmit || shouldDeferLiveSubmitForInput(sourceEl)) return;
     form.dispatchEvent(new Event("submit"));
   };
 
@@ -6093,7 +6102,7 @@ function bindGoAround() {
 
   flapEl.addEventListener("change", () => {
     updateFlapDependentUi();
-    autoRecalculate();
+    autoRecalculate(flapEl);
   });
 
   const chooseInputMode = (source) => {
@@ -6106,20 +6115,20 @@ function bindGoAround() {
 
   weightEl.addEventListener("input", () => {
     chooseInputMode("weight");
-    autoRecalculate();
+    autoRecalculate(weightEl);
   });
-  weightEl.addEventListener("change", autoRecalculate);
+  weightEl.addEventListener("change", () => autoRecalculate(weightEl));
   targetGradientEl.addEventListener("input", () => {
     chooseInputMode("target");
-    autoRecalculate();
+    autoRecalculate(targetGradientEl);
   });
-  targetGradientEl.addEventListener("change", autoRecalculate);
+  targetGradientEl.addEventListener("change", () => autoRecalculate(targetGradientEl));
   [oatEl, elevationEl].forEach((el) => {
-    el.addEventListener("input", autoRecalculate);
-    el.addEventListener("change", autoRecalculate);
+    el.addEventListener("input", () => autoRecalculate(el));
+    el.addEventListener("change", () => autoRecalculate(el));
   });
   [speedEl, antiIceEl, icingPenaltyEl].forEach((el) => {
-    el.addEventListener("change", autoRecalculate);
+    el.addEventListener("change", () => autoRecalculate(el));
   });
 
   form.addEventListener("submit", (event) => {
@@ -6219,12 +6228,13 @@ function bindCogLimit() {
   const weightEl = document.querySelector("#cog-weight");
   if (!form || !out || !weightEl) return;
 
-  const autoRecalculate = () => {
+  const autoRecalculate = (sourceEl = null) => {
+    if (shouldDeferLiveSubmitForInput(sourceEl)) return;
     form.dispatchEvent(new Event("submit"));
   };
 
-  weightEl.addEventListener("input", autoRecalculate);
-  weightEl.addEventListener("change", autoRecalculate);
+  weightEl.addEventListener("input", () => autoRecalculate(weightEl));
+  weightEl.addEventListener("change", () => autoRecalculate(weightEl));
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
