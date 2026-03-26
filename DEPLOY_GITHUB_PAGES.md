@@ -40,43 +40,54 @@ https://rbg-ai26.github.io/performance-calculators/
 
 After the workflow completes, open that URL and confirm the app loads.
 
-## 4. Update Supabase auth URLs
+## 4. Configure Dropbox OAuth redirect URIs
 
-In Supabase:
+In the Dropbox App Console for your app:
 
-1. Go to `Authentication`
-2. Go to `URL Configuration`
-3. Set:
+1. Open your app
+2. Go to the OAuth / Redirect URI section
+3. Add these redirect URIs:
 
-`Site URL`
 ```text
 https://rbg-ai26.github.io/performance-calculators/
+http://127.0.0.1:3000
+http://localhost:3000
 ```
 
-4. Add these `Redirect URLs`
+If you do not need local testing, you can keep only the GitHub Pages URL.
 
-```text
-https://rbg-ai26.github.io/performance-calculators/**
-http://127.0.0.1:3000/**
-http://localhost:3000/**
+## 5. Add the Dropbox app key to the app
+
+Open:
+
+- `sync-config.js`
+
+Set:
+
+```js
+window.SYNC_CONFIG = window.SYNC_CONFIG || {
+  dropboxAppKey: "YOUR_DROPBOX_APP_KEY",
+  dropboxSyncFilePath: "/performance-calculators-scenarios.json",
+};
 ```
 
-Keep the local URLs if you still want local testing.
+Do not place a Dropbox app secret in this app.
 
-## 5. Test sync
+## 6. Test sync
 
-1. Open the hosted Pages URL on the Mac
-2. Sign in through `Scenario Sync`
-3. Save a named scenario
-4. Click `Sync Now`
-5. Open the same Pages URL on the iPad
-6. Sign in with the same email
-7. Click `Sync Now`
+1. Open the hosted Pages URL on the Mac or iPad
+2. Click `Connect Dropbox`
+3. Authorize the app in Dropbox
+4. Click `Push to Dropbox` to upload your local scenarios
+5. Open the same hosted Pages URL on the other device
+6. Click `Connect Dropbox`
+7. Click `Pull from Dropbox`
 
 The same named scenarios should then appear on both devices.
 
 ## Notes
 
-- `sync-config.js` is intentionally public and contains only the Supabase project URL and publishable key.
-- Do not place the Supabase secret key in this app.
+- `sync-config.js` is intentionally public and contains only the Dropbox app key and sync file path.
+- The app stores one shared Dropbox sync bundle:
+  - `/performance-calculators-scenarios.json`
 - After deployment updates, close and reopen the installed PWA once if an old service worker shell is still showing.

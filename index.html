@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.8.5</p>
+        <p class="app-version" id="app-version">Version v7.9.1</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -61,15 +61,12 @@
               <input type="file" id="scenario-import-file" class="sr-only" accept=".json,application/json" />
             </div>
             <div class="scenario-sync">
-              <div class="scenario-sync-title">Scenario Sync</div>
-              <label>
-                Sync Email
-                <input type="email" id="sync-email" value="" placeholder="name@example.com" autocomplete="email" />
-              </label>
+              <div class="scenario-sync-title">Dropbox Sync</div>
               <div class="scenario-actions scenario-sync-actions">
-                <button type="button" id="sync-sign-in" class="secondary-button">Send Sign-In Link</button>
-                <button type="button" id="sync-now" class="secondary-button">Sync Now</button>
-                <button type="button" id="sync-sign-out" class="secondary-button">Sign Out</button>
+                <button type="button" id="sync-sign-in" class="secondary-button">Connect Dropbox</button>
+                <button type="button" id="sync-pull" class="secondary-button">Pull from Dropbox</button>
+                <button type="button" id="sync-push" class="secondary-button">Push to Dropbox</button>
+                <button type="button" id="sync-sign-out" class="secondary-button">Disconnect</button>
               </div>
               <div id="sync-account" class="scenario-status"></div>
               <div id="sync-status" class="scenario-status" aria-live="polite"></div>

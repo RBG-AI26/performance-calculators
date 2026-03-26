@@ -8,19 +8,22 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.8.5";
+const APP_VERSION = "v7.9.1";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
 const LINKED_WEIGHT_OVERRIDE_STORAGE_KEY = "performance-calculators-linked-weight-overrides-v1";
 const THEME_STORAGE_KEY = "performance-calculators-theme-v1";
-const SYNC_SESSION_STORAGE_KEY = "performance-calculators-sync-session-v1";
-const NON_PERSISTED_FIELD_IDS = new Set(["scenario-name", "scenario-select", "theme-mode", "sync-email"]);
+const SYNC_SESSION_STORAGE_KEY = "performance-calculators-sync-session-v2";
+const SYNC_AUTH_STORAGE_KEY = "performance-calculators-sync-auth-v1";
+const NON_PERSISTED_FIELD_IDS = new Set(["scenario-name", "scenario-select", "theme-mode"]);
 const LINKED_START_WEIGHT_FIELD_IDS = ["dpa-weight", "lrc-alt-weight", "eo-weight", "eo-div-weight", "cog-weight"];
 const DEFAULT_THEME_MODE = "auto";
 const SYNC_STATUS_REFRESH_SKEW_MS = 60 * 1000;
 const SYNC_SCENARIO_FILE_TYPE = "performance-calculators-scenario";
 const SYNC_SCENARIO_FILE_VERSION = 1;
+const SYNC_SCENARIO_BUNDLE_TYPE = "performance-calculators-scenarios-sync";
+const SYNC_SCENARIO_BUNDLE_VERSION = 1;
 
 const R_AIR = 287.05287;
 const GAMMA = 1.4;
@@ -3309,64 +3312,34 @@ function writeNamedScenarios(scenarios) {
 
 function getSyncConfig() {
   const raw = window.SYNC_CONFIG || {};
+  const configuredPath = String(raw.dropboxSyncFilePath || "").trim();
   return {
-    supabaseUrl: String(raw.supabaseUrl || "").trim().replace(/\/+$/g, ""),
-    supabaseAnonKey: String(raw.supabaseAnonKey || "").trim(),
+    dropboxAppKey: String(raw.dropboxAppKey || "").trim(),
+    dropboxSyncFilePath: configuredPath ? `/${configuredPath.replace(/^\/+/g, "")}` : "/performance-calculators-scenarios.json",
   };
 }
 
 function isSyncConfigured() {
-  const config = getSyncConfig();
-  return !!config.supabaseUrl && !!config.supabaseAnonKey;
-}
-
-function decodeJwtPayload(token) {
-  if (!token || typeof token !== "string" || typeof atob !== "function") return null;
-  try {
-    const [, payload] = token.split(".");
-    if (!payload) return null;
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized + "=".repeat((4 - (normalized.length % 4 || 4)) % 4);
-    const decoded = atob(padded);
-    const bytes = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
-    const json = new TextDecoder().decode(bytes);
-    const parsed = JSON.parse(json);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function buildSyncUserFromAccessToken(accessToken) {
-  const payload = decodeJwtPayload(accessToken);
-  if (!payload) return null;
-  return {
-    id: String(payload.sub || "").trim(),
-    email: String(payload.email || "").trim(),
-  };
+  return !!getSyncConfig().dropboxAppKey;
 }
 
 function normalizeSyncSession(raw) {
   if (!raw || typeof raw !== "object") return null;
   const accessToken = String(raw.accessToken || raw.access_token || "").trim();
+  if (!accessToken) return null;
   const refreshToken = String(raw.refreshToken || raw.refresh_token || "").trim();
-  if (!accessToken || !refreshToken) return null;
-  const tokenUser = buildSyncUserFromAccessToken(accessToken);
-  const rawUser = raw.user && typeof raw.user === "object" ? raw.user : {};
+  const account = raw.account && typeof raw.account === "object" ? raw.account : {};
   const expiresAt = Number(
-    raw.expiresAt ||
-      raw.expires_at ||
-      (Number.isFinite(raw.expires_in) ? Date.now() + Number(raw.expires_in) * 1000 : 0) ||
-      ((decodeJwtPayload(accessToken)?.exp || 0) * 1000),
+    raw.expiresAt || raw.expires_at || (Number.isFinite(raw.expires_in) ? Date.now() + Number(raw.expires_in) * 1000 : 0),
   );
-
   return {
     accessToken,
     refreshToken,
     expiresAt: Number.isFinite(expiresAt) ? expiresAt : 0,
-    user: {
-      id: String(rawUser.id || tokenUser?.id || "").trim(),
-      email: String(rawUser.email || tokenUser?.email || "").trim(),
+    account: {
+      id: String(account.id || account.account_id || "").trim(),
+      email: String(account.email || "").trim(),
+      name: String(account.name || account.display_name || "").trim(),
     },
   };
 }
@@ -3403,62 +3376,64 @@ function clearSyncSession() {
   }
 }
 
-function extractSyncSessionFromAuthPayload(payload) {
-  return normalizeSyncSession({
-    access_token: payload?.access_token,
-    refresh_token: payload?.refresh_token,
-    expires_in: payload?.expires_in,
-    expires_at: payload?.expires_at,
-    user: payload?.user,
-  });
+function readSyncAuthState() {
+  try {
+    const raw = localStorage.getItem(SYNC_AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      state: String(parsed.state || "").trim(),
+      verifier: String(parsed.verifier || "").trim(),
+      redirectUrl: String(parsed.redirectUrl || "").trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeSyncAuthState(state) {
+  try {
+    if (!state || typeof state !== "object") {
+      localStorage.removeItem(SYNC_AUTH_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(
+      SYNC_AUTH_STORAGE_KEY,
+      JSON.stringify({
+        state: String(state.state || "").trim(),
+        verifier: String(state.verifier || "").trim(),
+        redirectUrl: String(state.redirectUrl || "").trim(),
+      }),
+    );
+  } catch {
+    // Ignore storage failures and keep the app usable.
+  }
+}
+
+function clearSyncAuthState() {
+  try {
+    localStorage.removeItem(SYNC_AUTH_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures and keep the app usable.
+  }
 }
 
 function readSyncAuthParamsFromUrl() {
-  if (typeof window === "undefined" || !window.location) return { session: null, error: "" };
-  const parameterSources = [];
-  if (window.location.hash && window.location.hash.length > 1) {
-    parameterSources.push(new URLSearchParams(window.location.hash.slice(1)));
-  }
-  if (window.location.search && window.location.search.length > 1) {
-    parameterSources.push(new URLSearchParams(window.location.search.slice(1)));
-  }
-
-  for (const params of parameterSources) {
-    const accessToken = String(params.get("access_token") || "").trim();
-    const refreshToken = String(params.get("refresh_token") || "").trim();
-    const errorDescription = String(params.get("error_description") || params.get("error") || "").trim();
-    if (accessToken && refreshToken) {
-      return {
-        session: extractSyncSessionFromAuthPayload({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          expires_in: Number(params.get("expires_in") || 0),
-          expires_at: Number(params.get("expires_at") || 0),
-        }),
-        error: "",
-      };
-    }
-    if (errorDescription) {
-      return { session: null, error: errorDescription };
-    }
-  }
-  return { session: null, error: "" };
+  if (typeof window === "undefined" || !window.location) return { code: "", state: "", error: "" };
+  const params = new URLSearchParams(window.location.search || "");
+  return {
+    code: String(params.get("code") || "").trim(),
+    state: String(params.get("state") || "").trim(),
+    error: String(params.get("error_description") || params.get("error") || "").trim(),
+  };
 }
 
 function clearSyncAuthParamsFromUrl() {
   if (typeof window === "undefined" || !window.location || !window.history?.replaceState) return;
   try {
     const url = new URL(window.location.href);
-    [
-      "access_token",
-      "refresh_token",
-      "expires_in",
-      "expires_at",
-      "token_type",
-      "type",
-      "error",
-      "error_description",
-    ].forEach((key) => url.searchParams.delete(key));
+    ["code", "state", "error", "error_description"].forEach((key) => url.searchParams.delete(key));
     url.hash = "";
     window.history.replaceState({}, document.title, url.toString());
   } catch {
@@ -3484,7 +3459,8 @@ function mergeNamedScenarioMaps(localScenarios, remoteScenarios) {
       merged[name] = localScenario;
       return;
     }
-    merged[name] = getScenarioSavedAtValue(remoteScenario) > getScenarioSavedAtValue(localScenario) ? remoteScenario : localScenario;
+    merged[name] =
+      getScenarioSavedAtValue(remoteScenario) > getScenarioSavedAtValue(localScenario) ? remoteScenario : localScenario;
   });
   return merged;
 }
@@ -3492,15 +3468,16 @@ function mergeNamedScenarioMaps(localScenarios, remoteScenarios) {
 function getSyncRedirectUrl() {
   if (typeof window === "undefined" || !window.location) return "";
   const url = new URL(window.location.href);
+  url.search = "";
   url.hash = "";
   return url.toString();
 }
 
-async function readSupabaseError(response) {
+async function readSyncError(response) {
   try {
     const payload = await response.json();
     return (
-      String(payload?.msg || payload?.error_description || payload?.error || payload?.message || "").trim() ||
+      String(payload?.error_summary || payload?.error_description || payload?.error || payload?.message || payload?.msg || "").trim() ||
       `Request failed (${response.status})`
     );
   } catch {
@@ -3513,59 +3490,135 @@ async function readSupabaseError(response) {
   }
 }
 
-async function supabaseRequest(path, { method = "GET", accessToken = "", body, headers = {} } = {}) {
-  const config = getSyncConfig();
-  if (!config.supabaseUrl || !config.supabaseAnonKey) {
-    throw new Error("Scenario sync is not configured");
+function base64UrlEncodeBytes(bytes) {
+  if (typeof btoa !== "function") {
+    throw new Error("This browser does not support Dropbox sync");
   }
-  if (typeof fetch !== "function") {
-    throw new Error("This browser does not support sync requests");
-  }
-
-  const requestHeaders = {
-    apikey: config.supabaseAnonKey,
-    ...headers,
-  };
-  if (accessToken) requestHeaders.Authorization = `Bearer ${accessToken}`;
-  if (body !== undefined && !requestHeaders["Content-Type"]) {
-    requestHeaders["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(`${config.supabaseUrl}${path}`, {
-    method,
-    headers: requestHeaders,
-    body: body === undefined ? undefined : JSON.stringify(body),
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
   });
-  if (!response.ok) {
-    throw new Error(await readSupabaseError(response));
-  }
-  if (response.status === 204) return null;
-  const text = await response.text();
-  return text ? JSON.parse(text) : null;
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-async function sendScenarioSyncMagicLink(email) {
-  return supabaseRequest("/auth/v1/otp", {
+function createRandomSyncToken(byteLength = 32) {
+  const cryptoObj = window.crypto || window.msCrypto;
+  if (!cryptoObj?.getRandomValues) {
+    throw new Error("This browser does not support Dropbox sync");
+  }
+  const bytes = new Uint8Array(byteLength);
+  cryptoObj.getRandomValues(bytes);
+  return base64UrlEncodeBytes(bytes);
+}
+
+async function createCodeChallenge(verifier) {
+  const cryptoObj = window.crypto || window.msCrypto;
+  if (!cryptoObj?.subtle?.digest) {
+    throw new Error("This browser does not support Dropbox sync");
+  }
+  const digest = await cryptoObj.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return base64UrlEncodeBytes(new Uint8Array(digest));
+}
+
+async function requestDropboxToken(params) {
+  const response = await fetch("https://api.dropboxapi.com/oauth2/token", {
     method: "POST",
-    body: {
-      email,
-      create_user: true,
-      options: {
-        email_redirect_to: getSyncRedirectUrl(),
-      },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
     },
+    body: new URLSearchParams(params).toString(),
+  });
+  if (!response.ok) {
+    throw new Error(await readSyncError(response));
+  }
+  return response.json();
+}
+
+async function fetchDropboxAccount(accessToken) {
+  const response = await fetch("https://api.dropboxapi.com/2/users/get_current_account", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: "null",
+  });
+  if (!response.ok) {
+    throw new Error(await readSyncError(response));
+  }
+  const payload = await response.json();
+  return {
+    id: String(payload?.account_id || "").trim(),
+    email: String(payload?.email || "").trim(),
+    name: String(payload?.name?.display_name || "").trim(),
+  };
+}
+
+async function startDropboxAuthFlow() {
+  const config = getSyncConfig();
+  if (!config.dropboxAppKey) {
+    throw new Error("Dropbox sync is not configured");
+  }
+  const verifier = createRandomSyncToken(32);
+  const state = createRandomSyncToken(16);
+  const redirectUrl = getSyncRedirectUrl();
+  const challenge = await createCodeChallenge(verifier);
+  writeSyncAuthState({ state, verifier, redirectUrl });
+
+  const params = new URLSearchParams({
+    client_id: config.dropboxAppKey,
+    response_type: "code",
+    token_access_type: "offline",
+    redirect_uri: redirectUrl,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state,
+    scope: "account_info.read files.content.read files.content.write",
+  });
+  window.location.assign(`https://www.dropbox.com/oauth2/authorize?${params.toString()}`);
+}
+
+async function exchangeDropboxAuthCode(code, state) {
+  const config = getSyncConfig();
+  const authState = readSyncAuthState();
+  if (!authState?.verifier || !authState?.state) {
+    throw new Error("Dropbox sign-in expired. Start the connection again.");
+  }
+  if (authState.state !== state) {
+    throw new Error("Dropbox sign-in state mismatch. Start the connection again.");
+  }
+  const payload = await requestDropboxToken({
+    client_id: config.dropboxAppKey,
+    code,
+    grant_type: "authorization_code",
+    code_verifier: authState.verifier,
+    redirect_uri: authState.redirectUrl || getSyncRedirectUrl(),
+  });
+  const account = await fetchDropboxAccount(payload.access_token);
+  clearSyncAuthState();
+  return writeSyncSession({
+    access_token: payload.access_token,
+    refresh_token: payload.refresh_token,
+    expires_in: payload.expires_in,
+    account,
   });
 }
 
 async function refreshScenarioSyncSession(session) {
+  const config = getSyncConfig();
   if (!session?.refreshToken) return null;
   try {
-    const payload = await supabaseRequest("/auth/v1/token?grant_type=refresh_token", {
-      method: "POST",
-      body: { refresh_token: session.refreshToken },
+    const payload = await requestDropboxToken({
+      client_id: config.dropboxAppKey,
+      grant_type: "refresh_token",
+      refresh_token: session.refreshToken,
     });
-    const nextSession = extractSyncSessionFromAuthPayload(payload);
-    return writeSyncSession(nextSession);
+    return writeSyncSession({
+      access_token: payload.access_token,
+      refresh_token: session.refreshToken,
+      expires_in: payload.expires_in,
+      account: session.account,
+    });
   } catch {
     clearSyncSession();
     return null;
@@ -3574,13 +3627,20 @@ async function refreshScenarioSyncSession(session) {
 
 async function ensureScenarioSyncSession() {
   const authParams = readSyncAuthParamsFromUrl();
-  if (authParams.session) {
-    const sessionFromUrl = writeSyncSession(authParams.session);
-    clearSyncAuthParamsFromUrl();
-    return sessionFromUrl;
+  if (authParams.code) {
+    try {
+      const sessionFromUrl = await exchangeDropboxAuthCode(authParams.code, authParams.state);
+      clearSyncAuthParamsFromUrl();
+      return sessionFromUrl;
+    } catch (error) {
+      clearSyncAuthParamsFromUrl();
+      clearSyncAuthState();
+      throw error;
+    }
   }
   if (authParams.error) {
     clearSyncAuthParamsFromUrl();
+    clearSyncAuthState();
     throw new Error(authParams.error);
   }
 
@@ -3592,87 +3652,129 @@ async function ensureScenarioSyncSession() {
   return refreshScenarioSyncSession(session);
 }
 
-function convertCloudScenarioRecord(record) {
-  const name = String(record?.name || "").trim();
-  if (!name || !record?.state || typeof record.state !== "object") return null;
-  return {
-    name,
-    scenario: {
-      savedAt: record.saved_at || new Date().toISOString(),
-      state: record.state,
-      linkedWeightOverrides: sanitizeLinkedWeightOverrides(record.linked_weight_overrides || {}),
+async function getScenarioSyncAccount(session) {
+  if (session?.account?.email || session?.account?.name || session?.account?.id) return session.account;
+  if (!session?.accessToken) return null;
+  try {
+    const account = await fetchDropboxAccount(session.accessToken);
+    return writeSyncSession({ ...session, account })?.account || account;
+  } catch {
+    return null;
+  }
+}
+
+async function dropboxApiRequest(url, { accessToken = "", headers = {}, body, responseType = "json", allowNotFound = false } = {}) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...headers,
     },
+    body,
+  });
+  if (!response.ok) {
+    if (allowNotFound && response.status === 409) return null;
+    throw new Error(await readSyncError(response));
+  }
+  if (responseType === "text") return response.text();
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
+
+function buildSyncScenarioBundle(scenarios = readNamedScenarios()) {
+  const sanitizedScenarios = {};
+  Object.entries(scenarios || {}).forEach(([name, scenario]) => {
+    if (!name || !scenario?.state || typeof scenario.state !== "object") return;
+    sanitizedScenarios[name] = {
+      savedAt: String(scenario.savedAt || new Date().toISOString()),
+      state: scenario.state,
+      linkedWeightOverrides: sanitizeLinkedWeightOverrides(scenario.linkedWeightOverrides || {}),
+    };
+  });
+  return {
+    type: SYNC_SCENARIO_BUNDLE_TYPE,
+    version: SYNC_SCENARIO_BUNDLE_VERSION,
+    appVersion: APP_VERSION,
+    exportedAt: new Date().toISOString(),
+    scenarios: sanitizedScenarios,
   };
 }
 
-async function fetchCloudNamedScenarios(session) {
-  const rows = await supabaseRequest(
-    "/rest/v1/scenarios?select=name,saved_at,state,linked_weight_overrides&order=saved_at.desc",
-    {
-      method: "GET",
-      accessToken: session?.accessToken || "",
-    },
-  );
+function parseSyncScenarioBundle(rawText) {
+  const payload = JSON.parse(rawText);
+  if (
+    payload?.type !== SYNC_SCENARIO_BUNDLE_TYPE ||
+    payload?.version !== SYNC_SCENARIO_BUNDLE_VERSION ||
+    !payload?.scenarios ||
+    typeof payload.scenarios !== "object"
+  ) {
+    throw new Error("Invalid Dropbox sync file");
+  }
   const scenarios = {};
-  (Array.isArray(rows) ? rows : []).forEach((row) => {
-    const converted = convertCloudScenarioRecord(row);
-    if (converted) scenarios[converted.name] = converted.scenario;
+  Object.entries(payload.scenarios).forEach(([name, scenario]) => {
+    if (!name || !scenario?.state || typeof scenario.state !== "object") return;
+    scenarios[name] = {
+      savedAt: String(scenario.savedAt || new Date().toISOString()),
+      state: scenario.state,
+      linkedWeightOverrides: sanitizeLinkedWeightOverrides(scenario.linkedWeightOverrides || {}),
+    };
   });
   return scenarios;
 }
 
-async function upsertCloudNamedScenario(session, name, scenario) {
-  if (!session?.user?.id) throw new Error("Sign in again to sync scenarios");
-  await supabaseRequest("/rest/v1/scenarios?on_conflict=user_id,name", {
-    method: "POST",
-    accessToken: session.accessToken,
-    headers: {
-      Prefer: "resolution=merge-duplicates,return=minimal",
-    },
-    body: [
-      {
-        user_id: session.user.id,
-        name,
-        saved_at: scenario.savedAt || new Date().toISOString(),
-        app_version: APP_VERSION,
-        state: scenario.state,
-        linked_weight_overrides: sanitizeLinkedWeightOverrides(scenario.linkedWeightOverrides || {}),
-      },
-    ],
-  });
-}
-
-async function deleteCloudNamedScenario(session, name) {
-  await supabaseRequest(`/rest/v1/scenarios?name=eq.${encodeURIComponent(name)}`, {
-    method: "DELETE",
+async function downloadDropboxScenarioBundle(session) {
+  const config = getSyncConfig();
+  const content = await dropboxApiRequest("https://content.dropboxapi.com/2/files/download", {
     accessToken: session?.accessToken || "",
     headers: {
-      Prefer: "return=minimal",
+      "Dropbox-API-Arg": JSON.stringify({ path: config.dropboxSyncFilePath }),
     },
+    responseType: "text",
+    allowNotFound: true,
+  });
+  if (content === null) return {};
+  return parseSyncScenarioBundle(content);
+}
+
+async function uploadDropboxScenarioBundle(session, scenarios) {
+  const config = getSyncConfig();
+  const payload = JSON.stringify(buildSyncScenarioBundle(scenarios), null, 2);
+  await dropboxApiRequest("https://content.dropboxapi.com/2/files/upload", {
+    accessToken: session?.accessToken || "",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "Dropbox-API-Arg": JSON.stringify({
+        path: config.dropboxSyncFilePath,
+        mode: "overwrite",
+        autorename: false,
+        mute: true,
+        strict_conflict: false,
+      }),
+    },
+    body: payload,
   });
 }
 
-async function syncNamedScenariosBidirectional(session) {
+async function pullNamedScenariosFromSync(session) {
   const localScenarios = readNamedScenarios();
-  const remoteScenarios = await fetchCloudNamedScenarios(session);
+  const remoteScenarios = await downloadDropboxScenarioBundle(session);
   const mergedScenarios = mergeNamedScenarioMaps(localScenarios, remoteScenarios);
   writeNamedScenarios(mergedScenarios);
-
-  const names = new Set([...Object.keys(localScenarios), ...Object.keys(remoteScenarios)]);
-  for (const name of names) {
-    const localScenario = localScenarios[name];
-    const remoteScenario = remoteScenarios[name];
-    if (!localScenario) continue;
-    if (!remoteScenario || getScenarioSavedAtValue(localScenario) > getScenarioSavedAtValue(remoteScenario)) {
-      await upsertCloudNamedScenario(session, name, localScenario);
-    }
-  }
-
   return {
-    mergedScenarios,
     localCount: Object.keys(localScenarios).length,
     remoteCount: Object.keys(remoteScenarios).length,
     mergedCount: Object.keys(mergedScenarios).length,
+    mergedScenarios,
+  };
+}
+
+async function pushNamedScenariosToSync(session) {
+  const localScenarios = readNamedScenarios();
+  await uploadDropboxScenarioBundle(session, localScenarios);
+  return {
+    pushedCount: Object.keys(localScenarios).length,
+    localScenarios,
   };
 }
 
@@ -5694,9 +5796,9 @@ function bindNamedScenarios() {
   const importFileEl = document.querySelector("#scenario-import-file");
   const deleteBtn = document.querySelector("#scenario-delete");
   const statusEl = document.querySelector("#scenario-status");
-  const syncEmailEl = document.querySelector("#sync-email");
   const syncSignInBtn = document.querySelector("#sync-sign-in");
-  const syncNowBtn = document.querySelector("#sync-now");
+  const syncPullBtn = document.querySelector("#sync-pull");
+  const syncPushBtn = document.querySelector("#sync-push");
   const syncSignOutBtn = document.querySelector("#sync-sign-out");
   const syncAccountEl = document.querySelector("#sync-account");
   const syncStatusEl = document.querySelector("#sync-status");
@@ -5710,9 +5812,9 @@ function bindNamedScenarios() {
     !importFileEl ||
     !deleteBtn ||
     !statusEl ||
-    !syncEmailEl ||
     !syncSignInBtn ||
-    !syncNowBtn ||
+    !syncPullBtn ||
+    !syncPushBtn ||
     !syncSignOutBtn ||
     !syncAccountEl ||
     !syncStatusEl
@@ -5761,43 +5863,44 @@ function bindNamedScenarios() {
   const refreshSyncUi = async (sessionOverride) => {
     const configured = isSyncConfigured();
     const session = sessionOverride === undefined ? readSyncSession() : sessionOverride;
-    syncEmailEl.disabled = !configured;
-    syncNowBtn.disabled = !configured || !session;
+    syncPullBtn.disabled = !configured || !session;
+    syncPushBtn.disabled = !configured || !session;
     syncSignOutBtn.disabled = !configured || !session;
     if (!configured) {
-      setSyncAccount("Sync not configured. Add Supabase URL and anon key to sync-config.js.", "");
+      setSyncAccount("Dropbox sync not configured. Add your Dropbox app key to sync-config.js.", "");
       return;
     }
-    if (session?.user?.email) {
-      syncEmailEl.value = syncEmailEl.value.trim() || session.user.email;
-      setSyncAccount(`Signed in as ${session.user.email}`, "success");
+    const account = await getScenarioSyncAccount(session);
+    if (account?.email || account?.name || account?.id) {
+      const identity = account.email || account.name || account.id;
+      setSyncAccount(`Connected to Dropbox as ${identity}`, "success");
       return;
     }
-    setSyncAccount("Not signed in. Send a magic link to sync scenarios across devices.", "");
+    setSyncAccount("Not connected. Connect Dropbox to sync scenarios across devices.", "");
   };
 
-  const syncScenariosNow = async ({ showStatus = true } = {}) => {
+  const pullScenariosNow = async ({ showStatus = true } = {}) => {
     if (!isSyncConfigured()) {
-      if (showStatus) setSyncStatus("Sync not configured. Add Supabase URL and anon key to sync-config.js.", "error");
+      if (showStatus) setSyncStatus("Dropbox sync not configured. Add your Dropbox app key to sync-config.js.", "error");
       await refreshSyncUi(null);
       return null;
     }
     const session = await ensureScenarioSyncSession();
     if (!session) {
-      if (showStatus) setSyncStatus("Sign in first to sync scenarios.", "error");
+      if (showStatus) setSyncStatus("Connect Dropbox first to pull scenarios.", "error");
       await refreshSyncUi(null);
       return null;
     }
-    if (showStatus) setSyncStatus("Syncing scenarios...", "");
+    if (showStatus) setSyncStatus("Pulling scenarios from Dropbox...", "");
     const selectedBeforeSync = String(selectEl.value || "").trim();
-    const result = await syncNamedScenariosBidirectional(session);
+    const result = await pullNamedScenariosFromSync(session);
     populateScenarioOptions(selectedBeforeSync);
     await refreshSyncUi(session);
-    if (showStatus) setSyncStatus(`Synced ${result.mergedCount} scenarios.`, "success");
+    if (showStatus) setSyncStatus(`Pulled and merged ${result.mergedCount} scenarios.`, "success");
     return result;
   };
 
-  saveBtn.addEventListener("click", async () => {
+  saveBtn.addEventListener("click", () => {
     const name = String(nameEl.value || "").trim();
     if (!name) {
       setStatus("Enter a scenario name first.", "error");
@@ -5813,19 +5916,8 @@ function bindNamedScenarios() {
     populateScenarioOptions(name);
     selectEl.value = name;
     setStatus(`Saved scenario: ${name}`, "success");
-    if (!isSyncConfigured()) return;
-    try {
-      const session = await ensureScenarioSyncSession();
-      if (!session) {
-        setSyncStatus("Saved locally. Sign in to sync this scenario.", "");
-        await refreshSyncUi(null);
-        return;
-      }
-      await upsertCloudNamedScenario(session, name, scenarios[name]);
-      setSyncStatus(`Synced scenario: ${name}`, "success");
-      await refreshSyncUi(session);
-    } catch (error) {
-      setSyncStatus(`Saved locally. ${String(error?.message || "Unable to sync scenario.")}`, "error");
+    if (isSyncConfigured()) {
+      setSyncStatus("Saved locally. Push to Dropbox when you want to update the shared sync file.", "");
     }
   });
 
@@ -5925,19 +6017,7 @@ function bindNamedScenarios() {
       nameEl.value = importedName;
       setStatus(`Imported scenario: ${importedName}`, "success");
       if (isSyncConfigured()) {
-        try {
-          const session = await ensureScenarioSyncSession();
-          if (session) {
-            await upsertCloudNamedScenario(session, importedName, scenarios[importedName]);
-            setSyncStatus(`Synced imported scenario: ${importedName}`, "success");
-            await refreshSyncUi(session);
-          } else {
-            setSyncStatus("Imported locally. Sign in to sync this scenario.", "");
-            await refreshSyncUi(null);
-          }
-        } catch (error) {
-          setSyncStatus(`Imported locally. ${String(error?.message || "Unable to sync scenario.")}`, "error");
-        }
+        setSyncStatus("Imported locally. Push to Dropbox when you want to update the shared sync file.", "");
       }
     } catch (error) {
       setStatus(error?.message === "Invalid scenario file" ? error.message : "Unable to import scenario file.", "error");
@@ -5946,7 +6026,7 @@ function bindNamedScenarios() {
     }
   });
 
-  deleteBtn.addEventListener("click", async () => {
+  deleteBtn.addEventListener("click", () => {
     const name = String(selectEl.value || nameEl.value || "").trim();
     if (!name) {
       setStatus("Choose a saved scenario to delete.", "error");
@@ -5963,19 +6043,8 @@ function bindNamedScenarios() {
     populateScenarioOptions();
     if (nameEl.value.trim() === name) nameEl.value = "";
     setStatus(`Deleted scenario: ${name}`, "success");
-    if (!isSyncConfigured()) return;
-    try {
-      const session = await ensureScenarioSyncSession();
-      if (!session) {
-        setSyncStatus("Deleted locally. Sign in to sync deletions.", "");
-        await refreshSyncUi(null);
-        return;
-      }
-      await deleteCloudNamedScenario(session, name);
-      setSyncStatus(`Deleted synced scenario: ${name}`, "success");
-      await refreshSyncUi(session);
-    } catch (error) {
-      setSyncStatus(`Deleted locally. ${String(error?.message || "Unable to sync deletion.")}`, "error");
+    if (isSyncConfigured()) {
+      setSyncStatus("Deleted locally. Push to Dropbox when you want to update the shared sync file.", "");
     }
   });
 
@@ -5984,42 +6053,55 @@ function bindNamedScenarios() {
     setStatus("");
   });
 
-  syncEmailEl.addEventListener("input", () => {
-    setSyncStatus("");
-  });
-
   syncSignInBtn.addEventListener("click", async () => {
-    const email = String(syncEmailEl.value || "").trim();
     if (!isSyncConfigured()) {
-      setSyncStatus("Sync not configured. Add Supabase URL and anon key to sync-config.js.", "error");
+      setSyncStatus("Dropbox sync not configured. Add your Dropbox app key to sync-config.js.", "error");
       await refreshSyncUi(null);
       return;
     }
-    if (!email) {
-      setSyncStatus("Enter the email address you want to use for sync.", "error");
-      return;
-    }
     try {
-      setSyncStatus("Sending sign-in link...", "");
-      await sendScenarioSyncMagicLink(email);
-      setSyncStatus(`Sign-in link sent to ${email}. Open it on this device to enable sync.`, "success");
+      setSyncStatus("Redirecting to Dropbox...", "");
+      await startDropboxAuthFlow();
     } catch (error) {
-      setSyncStatus(String(error?.message || "Unable to send sign-in link."), "error");
+      setSyncStatus(String(error?.message || "Unable to connect Dropbox."), "error");
     }
   });
 
-  syncNowBtn.addEventListener("click", async () => {
+  syncPullBtn.addEventListener("click", async () => {
     try {
-      await syncScenariosNow({ showStatus: true });
+      await pullScenariosNow({ showStatus: true });
     } catch (error) {
-      setSyncStatus(String(error?.message || "Unable to sync scenarios."), "error");
+      setSyncStatus(String(error?.message || "Unable to pull scenarios from Dropbox."), "error");
+    }
+  });
+
+  syncPushBtn.addEventListener("click", async () => {
+    if (!isSyncConfigured()) {
+      setSyncStatus("Dropbox sync not configured. Add your Dropbox app key to sync-config.js.", "error");
+      await refreshSyncUi(null);
+      return;
+    }
+    try {
+      const session = await ensureScenarioSyncSession();
+      if (!session) {
+        setSyncStatus("Connect Dropbox first to push scenarios.", "error");
+        await refreshSyncUi(null);
+        return;
+      }
+      setSyncStatus("Pushing scenarios to Dropbox...", "");
+      const result = await pushNamedScenariosToSync(session);
+      await refreshSyncUi(session);
+      setSyncStatus(`Pushed ${result.pushedCount} scenarios to Dropbox.`, "success");
+    } catch (error) {
+      setSyncStatus(String(error?.message || "Unable to push scenarios to Dropbox."), "error");
     }
   });
 
   syncSignOutBtn.addEventListener("click", async () => {
+    clearSyncAuthState();
     clearSyncSession();
     await refreshSyncUi(null);
-    setSyncStatus("Signed out of scenario sync on this device.", "success");
+    setSyncStatus("Disconnected Dropbox sync on this device.", "success");
   });
 
   populateScenarioOptions();
@@ -6028,14 +6110,15 @@ function bindNamedScenarios() {
       const session = await ensureScenarioSyncSession();
       await refreshSyncUi(session);
       if (session) {
-        setSyncStatus("Syncing scenarios...", "");
-        await syncScenariosNow({ showStatus: true });
+        setSyncStatus("Dropbox connected. Pull or push scenarios when you are ready.", "success");
       } else {
         setSyncStatus("", "");
       }
     } catch (error) {
+      clearSyncAuthState();
+      clearSyncSession();
       await refreshSyncUi(null);
-      setSyncStatus(String(error?.message || "Unable to initialize scenario sync."), "error");
+      setSyncStatus(String(error?.message || "Unable to initialize Dropbox sync."), "error");
     }
   })();
 }
