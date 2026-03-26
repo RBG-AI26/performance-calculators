@@ -3350,7 +3350,14 @@ function timeTextToMinutes(t) {
 }
 
 function renderRows(target, rows) {
-  const emphasizedRows = new Set(["Inbound Leg Time", "DPA Total", "Total Fuel Required", "Required Weight"]);
+  const emphasizedRows = new Set([
+    "Inbound Leg Time",
+    "DPA Total",
+    "Total Fuel Required",
+    "Required Weight",
+    "Option D Cruise / Initial Descent Mach",
+    "Option D Descent IAS (>10000 / <=10000)",
+  ]);
   const stackedRows = new Set([
     "Estimated Step Climb Triggers",
     "Step Climb Plan",
@@ -5886,16 +5893,7 @@ function bindConversion() {
       machEl.value = formatInputNumber(result.mach, 3);
       tasEl.value = formatInputNumber(result.tasKt, 0);
 
-      renderRows(out, [
-        ["Input Basis", sourceLabel],
-        ["IAS", `${format(result.iasKt, 0)} kt`],
-        ["Mach", format(result.mach, 3)],
-        ["TAS", `${format(result.tasKt, 0)} kt`],
-        ["Pressure Altitude Used", `${format(pressureAltitudeFt, 0)} ft`],
-        ["Geopotential Altitude", `${format(atmosphere.geopotentialM * M_TO_FT, 0)} ft`],
-        ["ISA Temp", `${format(atmosphere.isaTempK - 273.15, 1)} °C`],
-        ["Actual Temp", `${format(atmosphere.actualTempK - 273.15, 1)} °C`],
-      ]);
+      out.innerHTML = "";
     } catch (error) {
       renderError(out, error.message);
     }
