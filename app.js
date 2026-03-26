@@ -4385,6 +4385,7 @@ function bindTripFuel() {
   const frfEl = document.querySelector("#trip-frf");
   const reqAdditionalModeEl = document.querySelector("#trip-req-additional-mode");
   const reqAdditionalEl = document.querySelector("#trip-req-additional");
+  let suppressAutoSubmit = false;
 
   if (
     !gnmEl ||
@@ -4412,6 +4413,11 @@ function bindTripFuel() {
   ) {
     return;
   }
+
+  const autoRecalculate = () => {
+    if (suppressAutoSubmit) return;
+    form.dispatchEvent(new Event("submit"));
+  };
 
   const syncModeUi = () => {
     setModeInputState(contModeEl, contEl);
@@ -4453,8 +4459,27 @@ function bindTripFuel() {
   modeEls.forEach((modeEl) => {
     modeEl.addEventListener("change", () => {
       syncModeUi();
-      form.dispatchEvent(new Event("submit"));
+      autoRecalculate();
     });
+  });
+
+  [
+    gnmEl,
+    windEl,
+    weightEl,
+    taxiEl,
+    plannedAddEl,
+    appEl,
+    arrivalFuelEl,
+    wxHoldEl,
+    divnNdaEl,
+    divHoldEl,
+    contEl,
+    frfEl,
+    reqAdditionalEl,
+  ].forEach((el) => {
+    el.addEventListener("input", autoRecalculate);
+    el.addEventListener("change", autoRecalculate);
   });
 
   form.addEventListener("submit", (event) => {
@@ -4473,6 +4498,7 @@ function bindTripFuel() {
       return;
     }
     try {
+      suppressAutoSubmit = true;
       const gnm = parseNum(gnmEl.value);
       const windMode = String(windModeEl.value || "wind");
       const timeInputMin = windMode === "time" ? parseHoursDecimalMinutes(windEl.value, "Time") : NaN;
@@ -4646,11 +4672,13 @@ function bindTripFuel() {
       renderRows(out, rows);
     } catch (error) {
       renderError(out, error.message);
+    } finally {
+      suppressAutoSubmit = false;
     }
   });
 
   syncModeUi();
-  form.dispatchEvent(new Event("submit"));
+  autoRecalculate();
 }
 
 function bindDpaCalculator() {
@@ -4674,6 +4702,7 @@ function bindDpaCalculator() {
   const frfEl = document.querySelector("#dpa-frf");
   const reqAdditionalModeEl = document.querySelector("#dpa-req-additional-mode");
   const reqAdditionalEl = document.querySelector("#dpa-req-additional");
+  let suppressAutoSubmit = false;
 
   if (
     !weightEl ||
@@ -4696,6 +4725,11 @@ function bindDpaCalculator() {
     return;
   }
 
+  const autoRecalculate = () => {
+    if (suppressAutoSubmit) return;
+    form.dispatchEvent(new Event("submit"));
+  };
+
   const syncModeUi = () => {
     setModeInputState(frfModeEl, frfEl);
     syncModeButtons.forEach((syncButtons) => syncButtons());
@@ -4714,8 +4748,24 @@ function bindDpaCalculator() {
   modeEls.forEach((modeEl) => {
     modeEl.addEventListener("change", () => {
       syncModeUi();
-      form.dispatchEvent(new Event("submit"));
+      autoRecalculate();
     });
+  });
+
+  [
+    weightEl,
+    ffEl,
+    appEl,
+    arrivalEl,
+    holdingWxEl,
+    holdingSngRwyEl,
+    divnNdaEl,
+    diversionHoldEl,
+    frfEl,
+    reqAdditionalEl,
+  ].forEach((el) => {
+    el.addEventListener("input", autoRecalculate);
+    el.addEventListener("change", autoRecalculate);
   });
 
   form.addEventListener("submit", (event) => {
@@ -4736,6 +4786,7 @@ function bindDpaCalculator() {
     }
 
     try {
+      suppressAutoSubmit = true;
       const perfAdjust = getGlobalPerfAdjust();
       const weightT = fieldIsBlank(weightEl.value) ? NaN : parseNum(weightEl.value);
       if (weightRequired) {
@@ -4828,11 +4879,13 @@ function bindDpaCalculator() {
       renderRows(out, rows);
     } catch (error) {
       renderError(out, error.message);
+    } finally {
+      suppressAutoSubmit = false;
     }
   });
 
   syncModeUi();
-  form.dispatchEvent(new Event("submit"));
+  autoRecalculate();
 }
 
 function bindLrcAltitudeLimits() {
@@ -5032,6 +5085,14 @@ function bindEngineOut() {
     const isaDevEl = document.querySelector("#eo-isa-dev");
     const driftGnmEl = document.querySelector("#eo-drift-gnm");
     const driftWindEl = document.querySelector("#eo-drift-wind");
+    const autoRecalculate = () => {
+      driftForm.dispatchEvent(new Event("submit"));
+    };
+
+    [weightEl, isaDevEl, driftGnmEl, driftWindEl].forEach((el) => {
+      el.addEventListener("input", autoRecalculate);
+      el.addEventListener("change", autoRecalculate);
+    });
 
     driftForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -5110,7 +5171,7 @@ function bindEngineOut() {
       }
     });
 
-    driftForm.dispatchEvent(new Event("submit"));
+    autoRecalculate();
   }
 
   if (diversionForm && diversionOut) {
@@ -5118,6 +5179,14 @@ function bindEngineOut() {
     const eoDiversionGnmEl = document.querySelector("#eo-div-gnm");
     const eoDiversionWindEl = document.querySelector("#eo-div-wind");
     const eoDiversionAltEl = document.querySelector("#eo-div-alt");
+    const autoRecalculate = () => {
+      diversionForm.dispatchEvent(new Event("submit"));
+    };
+
+    [eoDiversionWeightEl, eoDiversionGnmEl, eoDiversionWindEl, eoDiversionAltEl].forEach((el) => {
+      el.addEventListener("input", autoRecalculate);
+      el.addEventListener("change", autoRecalculate);
+    });
 
     diversionForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -5162,7 +5231,7 @@ function bindEngineOut() {
       }
     });
 
-    diversionForm.dispatchEvent(new Event("submit"));
+    autoRecalculate();
   }
 }
 
@@ -5178,6 +5247,15 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
   const holdMinEl = document.querySelector(fieldIds.holdMin);
   const arrivalAllowanceEl = document.querySelector(fieldIds.arrivalMin);
   if (!gnmEl || !windEl || !altEl || !weightEl || !holdMinEl || !arrivalAllowanceEl) return;
+
+  const autoRecalculate = () => {
+    form.dispatchEvent(new Event("submit"));
+  };
+
+  [gnmEl, windEl, altEl, weightEl, holdMinEl, arrivalAllowanceEl].forEach((el) => {
+    el.addEventListener("input", autoRecalculate);
+    el.addEventListener("change", autoRecalculate);
+  });
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -5238,7 +5316,7 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
     }
   });
 
-  form.dispatchEvent(new Event("submit"));
+  autoRecalculate();
 }
 
 function bindDiversion() {
@@ -5281,6 +5359,12 @@ function bindHolding() {
   const timingTempEl = document.querySelector("#hold-timing-temp");
   let lastTimingSource = totalHoldEl.value.trim() !== "" ? "total" : "inbound";
   let lastTempSource = "isa-dev";
+  let suppressAutoSubmit = false;
+
+  const autoRecalculate = () => {
+    if (suppressAutoSubmit) return;
+    form.dispatchEvent(new Event("submit"));
+  };
 
   function chooseTimingSource(source) {
     if (source === "total" && totalHoldEl.value.trim() !== "") {
@@ -5292,15 +5376,50 @@ function bindHolding() {
     }
   }
 
-  totalHoldEl.addEventListener("input", () => chooseTimingSource("total"));
-  totalHoldEl.addEventListener("change", () => chooseTimingSource("total"));
-  inboundLegEl.addEventListener("input", () => chooseTimingSource("inbound"));
-  inboundLegEl.addEventListener("change", () => chooseTimingSource("inbound"));
+  totalHoldEl.addEventListener("input", () => {
+    chooseTimingSource("total");
+    autoRecalculate();
+  });
+  totalHoldEl.addEventListener("change", () => {
+    chooseTimingSource("total");
+    autoRecalculate();
+  });
+  inboundLegEl.addEventListener("input", () => {
+    chooseTimingSource("inbound");
+    autoRecalculate();
+  });
+  inboundLegEl.addEventListener("change", () => {
+    chooseTimingSource("inbound");
+    autoRecalculate();
+  });
   timingIsaDevEl.addEventListener("input", () => {
     lastTempSource = "isa-dev";
+    autoRecalculate();
   });
   timingTempEl.addEventListener("input", () => {
     lastTempSource = "temp";
+    autoRecalculate();
+  });
+
+  [
+    "#hold-weight",
+    "#hold-alt",
+    "#fuel-available",
+    "#hold-inbound-course",
+    "#hold-wind-dir",
+    "#hold-wind-speed",
+    "#hold-timing-ias",
+    "#hold-bank-limit",
+  ].forEach((selector) => {
+    const el = document.querySelector(selector);
+    if (!el) return;
+    el.addEventListener("input", autoRecalculate);
+    el.addEventListener("change", autoRecalculate);
+  });
+
+  [document.querySelector("#hold-side"), timingIsaDevEl, timingTempEl].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("change", autoRecalculate);
   });
 
   form.addEventListener("submit", (event) => {
@@ -5326,6 +5445,7 @@ function bindHolding() {
       return;
     }
     try {
+      suppressAutoSubmit = true;
       const weight = parseNum(document.querySelector("#hold-weight").value);
       const holdAltEl = document.querySelector("#hold-alt");
       const holdAltInput = parseAltOrFlInput(holdAltEl.value, "Alt/FL");
@@ -5485,6 +5605,8 @@ function bindHolding() {
       renderRows(out, rows);
     } catch (error) {
       renderError(out, error.message);
+    } finally {
+      suppressAutoSubmit = false;
     }
   });
 
@@ -5494,7 +5616,7 @@ function bindHolding() {
     isaDeviationEl: timingIsaDevEl,
     temperatureEl: timingTempEl,
   });
-  form.dispatchEvent(new Event("submit"));
+  autoRecalculate();
 }
 
 function bindLoseTime() {
@@ -6097,6 +6219,13 @@ function bindCogLimit() {
   const weightEl = document.querySelector("#cog-weight");
   if (!form || !out || !weightEl) return;
 
+  const autoRecalculate = () => {
+    form.dispatchEvent(new Event("submit"));
+  };
+
+  weightEl.addEventListener("input", autoRecalculate);
+  weightEl.addEventListener("change", autoRecalculate);
+
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     if (missingFieldsBanner(out, [fieldIsBlank(weightEl.value) ? "Gross Weight (1000 kg)" : ""])) {
@@ -6117,7 +6246,7 @@ function bindCogLimit() {
     }
   });
 
-  form.dispatchEvent(new Event("submit"));
+  autoRecalculate();
 }
 
 function bindGlobalSettings() {
