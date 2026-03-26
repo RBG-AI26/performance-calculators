@@ -4589,7 +4589,7 @@ function bindTripFuel() {
         ["Flight Fuel", `${format(result.flightFuelKg, 0)} kg`],
         ["Approach Fuel", `${format(result.appKg, 0)} kg`],
         ["Arrival Fuel", `${format(result.arrivalFuelKg, 0)} kg`],
-        ["Wx Hold", `${format(result.wxHoldKg, 0)} kg`],
+        ["Wx/TRF Hold", `${format(result.wxHoldKg, 0)} kg`],
         ["Divn/NDA", `${format(result.divnNdaKg, 0)} kg`],
         ["Div Hold", `${format(result.divHoldKg, 0)} kg`],
         ["Cont", `${format(result.contingencyKg, 0)} kg`],
@@ -4755,7 +4755,7 @@ function bindDpaCalculator() {
 
       const arrivalKg = resolveKgInput("Arrival", arrivalEl);
       const holdingWxKg = resolveMixedEntryKg({
-        label: "Wx Hold",
+        label: "Wx/TRF Hold",
         modeEl: holdingWxModeEl,
         valueEl: holdingWxEl,
         minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
@@ -4797,7 +4797,7 @@ function bindDpaCalculator() {
         ["FF", `${format(ffKg, 0)} kg`],
         ["App", `${format(appKg, 0)} kg`],
         ["Arrival", `${format(arrivalKg, 0)} kg`],
-        ["Wx Hold", `${format(holdingWxKg, 0)} kg`],
+        ["Wx/TRF Hold", `${format(holdingWxKg, 0)} kg`],
         ["SNG RWY Hold", `${format(holdingSngRwyKg, 0)} kg`],
         ["Divn/NDA", `${format(divnNdaKg, 0)} kg`],
         ["Div Hold", `${format(diversionHoldKg, 0)} kg`],
