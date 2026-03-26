@@ -1115,9 +1115,13 @@ function lookupGoAroundAntiIceAdjustment(_config, antiIceMode, oatC) {
 }
 
 function getGoAroundAntiIceBand(oatC) {
-  if (oatC <= 8) return "OAT <= 8°C";
-  if (oatC <= 20) return "8°C < OAT <= 20°C";
-  return "OAT > 20°C";
+  if (oatC <= 8) return "Landing Temp <= 8°C";
+  if (oatC <= 20) return "8°C < Landing Temp <= 20°C";
+  return "Landing Temp > 20°C";
+}
+
+function shouldApplyGoAroundIcingPenalty(applyIcingPenalty, oatC) {
+  return applyIcingPenalty && oatC < 10;
 }
 
 function calculateGoAroundGradient({
@@ -1133,7 +1137,7 @@ function calculateGoAroundGradient({
   const config = getGoAroundConfig(flapSelection);
   const ranges = getGoAroundRanges(config);
 
-  if (!Number.isFinite(oatCInput)) throw new Error("OAT is invalid");
+  if (!Number.isFinite(oatCInput)) throw new Error("Landing temperature is invalid");
   if (!Number.isFinite(elevationFtInput)) throw new Error("Airport elevation is invalid");
   const hasLandingWeightInput = Number.isFinite(landingWeightTInput);
   const hasTargetGradientInput = Number.isFinite(targetGradientPctInput);
@@ -1150,11 +1154,11 @@ function calculateGoAroundGradient({
   const speedAdjustmentPct = lookupGoAroundSpeedAdjustment(config, speedLabel, referenceGradientPct);
   const antiIceAdjustmentPct = lookupGoAroundAntiIceAdjustment(config, antiIceMode, oatC);
   const antiIceBand = getGoAroundAntiIceBand(oatC);
-  const icingPenaltyPct = applyIcingPenalty ? -config.icingPenaltyPct : 0;
+  const icingPenaltyPct = shouldApplyGoAroundIcingPenalty(applyIcingPenalty, oatC) ? -config.icingPenaltyPct : 0;
   const baseGradientWithoutWeightPct = referenceGradientPct + speedAdjustmentPct + antiIceAdjustmentPct + icingPenaltyPct;
   const warnings = [];
   if (oatC !== oatCInput) {
-    warnings.push(`OAT clamped to ${format(oatC, 1)}°C`);
+    warnings.push(`Landing temperature clamped to ${format(oatC, 1)}°C`);
   }
   if (elevationFt !== elevationFtInput) {
     warnings.push(`Airport elevation clamped to ${format(elevationFt, 0)} ft`);
@@ -5789,6 +5793,12 @@ function bindConversion() {
   const isaDevEl = document.querySelector("#conv-isa-dev");
   let lastTempSource = "temp";
   let lastSpeedSource = "ias";
+  let suppressAutoSubmit = false;
+
+  function autoRecalculate() {
+    if (suppressAutoSubmit) return;
+    form.dispatchEvent(new Event("submit"));
+  }
 
   function setActiveSpeedSource(source) {
     lastSpeedSource = source;
@@ -5803,14 +5813,27 @@ function bindConversion() {
     [tasEl, "tas"],
   ].forEach(([el, source]) => {
     el.addEventListener("focus", () => setActiveSpeedSource(source));
-    el.addEventListener("input", () => setActiveSpeedSource(source));
+    el.addEventListener("input", () => {
+      setActiveSpeedSource(source);
+      autoRecalculate();
+    });
+    el.addEventListener("change", () => {
+      setActiveSpeedSource(source);
+      autoRecalculate();
+    });
   });
   isaDevEl.addEventListener("input", () => {
     lastTempSource = "isa-dev";
+    autoRecalculate();
   });
+  isaDevEl.addEventListener("change", autoRecalculate);
   oatEl.addEventListener("input", () => {
     lastTempSource = "temp";
+    autoRecalculate();
   });
+  oatEl.addEventListener("change", autoRecalculate);
+  flEl.addEventListener("input", autoRecalculate);
+  flEl.addEventListener("change", autoRecalculate);
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -5830,6 +5853,7 @@ function bindConversion() {
       return;
     }
     try {
+      suppressAutoSubmit = true;
       const flInput = parseAltOrFlInput(flEl.value, "Alt/FL");
       const fl = flInput.flightLevel;
       const pressureAltitudeFt = fl * 100;
@@ -5887,6 +5911,8 @@ function bindConversion() {
       out.innerHTML = "";
     } catch (error) {
       renderError(out, error.message);
+    } finally {
+      suppressAutoSubmit = false;
     }
   });
 
@@ -5896,7 +5922,7 @@ function bindConversion() {
     isaDeviationEl: isaDevEl,
     temperatureEl: oatEl,
   });
-  form.dispatchEvent(new Event("submit"));
+  autoRecalculate();
 }
 
 function bindGoAround() {
@@ -5912,6 +5938,12 @@ function bindGoAround() {
   const speedEl = document.querySelector("#go-around-speed");
   const antiIceEl = document.querySelector("#go-around-anti-ice");
   const icingPenaltyEl = document.querySelector("#go-around-icing-penalty");
+  let suppressAutoSubmit = false;
+
+  const autoRecalculate = () => {
+    if (suppressAutoSubmit) return;
+    form.dispatchEvent(new Event("submit"));
+  };
 
   const setRangeText = (selector, text) => {
     const el = document.querySelector(selector);
@@ -5939,7 +5971,7 @@ function bindGoAround() {
 
   flapEl.addEventListener("change", () => {
     updateFlapDependentUi();
-    form.dispatchEvent(new Event("submit"));
+    autoRecalculate();
   });
 
   const chooseInputMode = (source) => {
@@ -5952,16 +5984,27 @@ function bindGoAround() {
 
   weightEl.addEventListener("input", () => {
     chooseInputMode("weight");
+    autoRecalculate();
   });
+  weightEl.addEventListener("change", autoRecalculate);
   targetGradientEl.addEventListener("input", () => {
     chooseInputMode("target");
+    autoRecalculate();
+  });
+  targetGradientEl.addEventListener("change", autoRecalculate);
+  [oatEl, elevationEl].forEach((el) => {
+    el.addEventListener("input", autoRecalculate);
+    el.addEventListener("change", autoRecalculate);
+  });
+  [speedEl, antiIceEl, icingPenaltyEl].forEach((el) => {
+    el.addEventListener("change", autoRecalculate);
   });
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     if (
       missingFieldsBanner(out, [
-        fieldIsBlank(oatEl.value) ? "OAT" : "",
+        fieldIsBlank(oatEl.value) ? "Landing Temp" : "",
         fieldIsBlank(elevationEl.value) ? "Airport Elevation" : "",
       ])
     ) {
@@ -5972,6 +6015,7 @@ function bindGoAround() {
       return;
     }
     try {
+      suppressAutoSubmit = true;
       const oatText = oatEl.value.trim();
       const elevationText = elevationEl.value.trim();
       const weightText = weightEl.value.trim();
@@ -5999,7 +6043,7 @@ function bindGoAround() {
       const rows = [
         ...(result.warnings.length ? [["__warning__", `Input warning: ${result.warnings.join(" | ")}`]] : []),
         ["Flap / Speed", `${result.flapLabel} / ${result.inputsUsed.speedLabel}`],
-        ["OAT / Airport Elevation Used", `${format(result.inputsUsed.oatC, 1)} °C / ${format(result.inputsUsed.elevationFt, 0)} ft`],
+        ["Landing Temp / Airport Elevation Used", `${format(result.inputsUsed.oatC, 1)} °C / ${format(result.inputsUsed.elevationFt, 0)} ft`],
         ["Anti-Ice Band Applied", result.antiIceBand],
         ...(result.mode === "target"
           ? [
@@ -6017,11 +6061,13 @@ function bindGoAround() {
       renderRows(out, rows);
     } catch (error) {
       renderError(out, error.message);
+    } finally {
+      suppressAutoSubmit = false;
     }
   });
 
   updateFlapDependentUi();
-  form.dispatchEvent(new Event("submit"));
+  autoRecalculate();
 }
 
 function calculateCogLimit(grossWeight1000Kg) {
