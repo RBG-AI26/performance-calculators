@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.10.4</p>
+        <p class="app-version" id="app-version">Version v7.11.0</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -622,25 +622,56 @@
             New Alt/FL <span class="label-note" id="lt-new-fl-range"></span>
             <input type="number" step="1" id="lt-new-fl" value="390" />
           </label>
-          <div class="grid-subheading">Cruise + Descent (Option D)</div>
+        </form>
+        <div id="lose-time-out" class="results"></div>
+      </section>
+
+      <section class="panel" data-family="holding" aria-labelledby="fix-time-heading">
+        <h2 id="fix-time-heading">Cruise + Descent Time at Fix</h2>
+        <p class="module-note">Enter either Mach or Descent IAS. The last edited speed box is treated as the fixed input.</p>
+        <form id="fix-time-form" class="grid">
           <label>
-            Distance to TOD (NM)
-            <input type="number" step="1" id="lt-tod-distance" value="" />
+            Distance to Fix (NM)
+            <input type="number" step="1" id="ftf-distance" value="180" />
           </label>
           <label>
-            Descent Speed
-            <input type="text" inputmode="decimal" id="lt-descent-ias" value="" placeholder=".82 or 280" />
+            Current Weight (t)
+            <input type="number" step="0.1" id="ftf-weight" value="163" />
+          </label>
+          <label>
+            Current Alt/FL <span class="label-note" id="ftf-fl-range"></span>
+            <input type="number" step="1" id="ftf-fl" value="380" />
+          </label>
+          <label>
+            Wind (kt)
+            <input type="number" step="1" id="ftf-wind" value="0" />
+          </label>
+          <label>
+            Distance to TOD (NM)
+            <input type="number" step="1" id="ftf-tod-distance" value="80" />
+          </label>
+          <label>
+            Required Time at Fix (UTC)
+            <input type="text" inputmode="numeric" id="ftf-fix-time-utc" value="" placeholder="14:30 or 1430" />
+          </label>
+          <label>
+            Cruise / Initial Descent Mach
+            <input type="text" inputmode="decimal" id="ftf-mach" value="" placeholder=".82" />
+          </label>
+          <label>
+            Descent IAS (kt)
+            <input type="number" step="1" id="ftf-ias" value="" placeholder="280" />
           </label>
           <label>
             ISA Deviation (°C)
-            <input type="number" step="0.1" id="lt-optiond-isa-dev" value="0" />
+            <input type="number" step="0.1" id="ftf-isa-dev" value="0" />
           </label>
           <label>
             Temperature (°C)
-            <input type="number" step="0.1" id="lt-optiond-temp" value="" />
+            <input type="number" step="0.1" id="ftf-temp" value="" />
           </label>
         </form>
-        <div id="lose-time-out" class="results"></div>
+        <div id="fix-time-out" class="results"></div>
       </section>
 
       <section class="panel" data-family="altitude" aria-labelledby="conversion-heading">

@@ -789,6 +789,7 @@ button:hover {
   #go-around-form,
   #holding-form,
   #lose-time-form,
+  #fix-time-form,
   #conversion-form {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
