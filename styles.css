@@ -366,6 +366,28 @@ body {
   flex-wrap: wrap;
 }
 
+.scenario-sync-options {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 1rem;
+  align-items: center;
+}
+
+.sync-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.sync-option input {
+  width: auto;
+  margin: 0;
+}
+
 .grid-subheading {
   grid-column: 1 / -1;
   font-size: 0.86rem;

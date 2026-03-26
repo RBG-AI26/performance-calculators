@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.9.8</p>
+        <p class="app-version" id="app-version">Version v7.10.0</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -64,11 +64,16 @@
               <div class="scenario-sync-title">Dropbox Sync</div>
               <div class="scenario-actions scenario-sync-actions">
                 <button type="button" id="sync-sign-in" class="secondary-button">Connect Dropbox</button>
-                <button type="button" id="sync-pull" class="secondary-button">Pull from Dropbox</button>
-                <button type="button" id="sync-push" class="secondary-button">Push to Dropbox</button>
+                <button type="button" id="sync-pull" class="secondary-button">Load from Dropbox</button>
+                <button type="button" id="sync-push" class="secondary-button">Save to Dropbox</button>
                 <button type="button" id="sync-sign-out" class="secondary-button">Disconnect</button>
               </div>
+              <div class="scenario-sync-options">
+                <label class="sync-option"><input type="checkbox" id="sync-auto-pull" /> Auto-load on open</label>
+                <label class="sync-option"><input type="checkbox" id="sync-auto-push-save" /> Auto-save after Save</label>
+              </div>
               <div id="sync-account" class="scenario-status"></div>
+              <div id="sync-meta" class="scenario-status"></div>
               <div id="sync-status" class="scenario-status" aria-live="polite"></div>
             </div>
             <div id="scenario-status" class="scenario-status" aria-live="polite"></div>

@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.9.8";
+const APP_VERSION = "v7.10.0";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -24,6 +24,7 @@ const SYNC_SCENARIO_FILE_TYPE = "performance-calculators-scenario";
 const SYNC_SCENARIO_FILE_VERSION = 1;
 const SYNC_SCENARIO_BUNDLE_TYPE = "performance-calculators-scenarios-sync";
 const SYNC_SCENARIO_BUNDLE_VERSION = 1;
+const SYNC_ACTIVITY_STORAGE_KEY = "performance-calculators-sync-activity-v1";
 
 const R_AIR = 287.05287;
 const GAMMA = 1.4;
@@ -3302,6 +3303,54 @@ function readNamedScenarios() {
   }
 }
 
+function readSyncActivity() {
+  try {
+    const raw = localStorage.getItem(SYNC_ACTIVITY_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSyncActivity(activity) {
+  try {
+    localStorage.setItem(SYNC_ACTIVITY_STORAGE_KEY, JSON.stringify(activity));
+  } catch {
+    // Ignore storage failures and keep the app usable.
+  }
+}
+
+function formatSyncTimestamp(isoText) {
+  const date = new Date(isoText);
+  if (Number.isNaN(date.getTime())) return "";
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(date);
+  } catch {
+    return date.toLocaleString();
+  }
+}
+
+function buildSyncActivityMessage(activity) {
+  if (!activity?.at || !activity?.action) return "No Dropbox sync recorded on this device yet.";
+  const timestamp = formatSyncTimestamp(activity.at);
+  const actionLabel = activity.action === "pull" ? "Dropbox load" : "Dropbox save";
+  const countText = Number.isFinite(activity.count) ? ` (${activity.count} scenarios)` : "";
+  return `Last ${actionLabel}: ${timestamp}${countText}`;
+}
+
+function writeSyncActivityRecord(action, count) {
+  writeSyncActivity({
+    action,
+    count: Number.isFinite(count) ? count : null,
+    at: new Date().toISOString(),
+  });
+}
+
 function writeNamedScenarios(scenarios) {
   try {
     localStorage.setItem(SCENARIO_STORAGE_KEY, JSON.stringify(scenarios));
@@ -5379,6 +5428,7 @@ function bindLoseTime() {
           const optionDMaxMachNote = optionD.limitedByMaxMach
             ? `Option D has no exact solution for the selected descent IAS. The target is ${format(requiredDelayMin, 2)} min delay, but the minimum achievable delay at LRC Mach is ${format(optionDDelayAchievedMin, 2)} min`
             : "";
+          const hasDescentSegment = optionD.solution.descentDistanceNm > 0.001;
           optionDRows = [
             ["__spacer__", ""],
             ["__section__", "Option D (Cruise + Descent)"],
@@ -5394,27 +5444,31 @@ function bindLoseTime() {
               optionD.limitedByMaxMach ? "Option D Minimum-Delay Cruise / Initial Descent Mach" : "Option D Cruise / Initial Descent Mach",
               format(optionD.requiredMach, 3),
             ],
-            [
-              "Option D Descent IAS (>10000 / <=10000)",
-              `${format(optionD.solution.descentIasAbove10kKt, 0)} / ${format(optionD.solution.descentIasBelow10kKt, 0)} kt`,
-            ],
-            ["Option D Mach/IAS Crossover Altitude", `${format(optionD.solution.crossoverAltitudeFt, 0)} ft`],
-            [
-              "Option D Cruise Distance / Descent Distance",
-              `${format(optionD.solution.cruiseDistanceNm, 1)} / ${format(optionD.solution.descentDistanceNm, 1)} NM`,
-            ],
-            [
-              "Option D Cruise Time / Descent Time",
-              `${format(optionD.solution.cruiseTimeMin, 1)} / ${format(optionD.solution.descentTimeMin, 1)} min`,
-            ],
-            [
-              "Option D Descent Segment Split",
-              `Mach ${format(optionD.solution.machSegmentDistanceNm, 1)} NM (${format(optionD.solution.machSegmentTimeMin, 1)} min), IAS ${format(optionD.solution.iasHighSegmentDistanceNm, 1)} NM (${format(optionD.solution.iasHighSegmentTimeMin, 1)} min), Low ${format(optionD.solution.iasLowSegmentDistanceNm, 1)} NM (${format(optionD.solution.iasLowSegmentTimeMin, 1)} min)`,
-            ],
-            [
-              "Option D Reference Descent Distance / Time",
-              `${format(optionD.solution.referenceDescentDistanceNm, 1)} NM / ${format(optionD.solution.referenceDescentTimeMin, 1)} min`,
-            ],
+            ...(hasDescentSegment
+              ? [
+                  [
+                    "Option D Descent IAS (>10000 / <=10000)",
+                    `${format(optionD.solution.descentIasAbove10kKt, 0)} / ${format(optionD.solution.descentIasBelow10kKt, 0)} kt`,
+                  ],
+                  ["Option D Mach/IAS Crossover Altitude", `${format(optionD.solution.crossoverAltitudeFt, 0)} ft`],
+                  [
+                    "Option D Cruise Distance / Descent Distance",
+                    `${format(optionD.solution.cruiseDistanceNm, 1)} / ${format(optionD.solution.descentDistanceNm, 1)} NM`,
+                  ],
+                  [
+                    "Option D Cruise Time / Descent Time",
+                    `${format(optionD.solution.cruiseTimeMin, 1)} / ${format(optionD.solution.descentTimeMin, 1)} min`,
+                  ],
+                  [
+                    "Option D Descent Segment Split",
+                    `Mach ${format(optionD.solution.machSegmentDistanceNm, 1)} NM (${format(optionD.solution.machSegmentTimeMin, 1)} min), IAS ${format(optionD.solution.iasHighSegmentDistanceNm, 1)} NM (${format(optionD.solution.iasHighSegmentTimeMin, 1)} min), Low ${format(optionD.solution.iasLowSegmentDistanceNm, 1)} NM (${format(optionD.solution.iasLowSegmentTimeMin, 1)} min)`,
+                  ],
+                  [
+                    "Option D Reference Descent Distance / Time",
+                    `${format(optionD.solution.referenceDescentDistanceNm, 1)} NM / ${format(optionD.solution.referenceDescentTimeMin, 1)} min`,
+                  ],
+                ]
+              : []),
             ["Option D Residual Hold at Fix", `${format(optionD.residualHoldMin, 2)} min`],
             ...(optionDMaxMachNote ? [["__warning__", optionDMaxMachNote]] : []),
             ...(optionDLevelChangeNote ? [["__warning__", optionDLevelChangeNote]] : []),
@@ -5834,7 +5888,10 @@ function bindNamedScenarios() {
   const syncPullBtn = document.querySelector("#sync-pull");
   const syncPushBtn = document.querySelector("#sync-push");
   const syncSignOutBtn = document.querySelector("#sync-sign-out");
+  const syncAutoPullEl = document.querySelector("#sync-auto-pull");
+  const syncAutoPushSaveEl = document.querySelector("#sync-auto-push-save");
   const syncAccountEl = document.querySelector("#sync-account");
+  const syncMetaEl = document.querySelector("#sync-meta");
   const syncStatusEl = document.querySelector("#sync-status");
   if (
     !nameEl ||
@@ -5850,7 +5907,10 @@ function bindNamedScenarios() {
     !syncPullBtn ||
     !syncPushBtn ||
     !syncSignOutBtn ||
+    !syncAutoPullEl ||
+    !syncAutoPushSaveEl ||
     !syncAccountEl ||
+    !syncMetaEl ||
     !syncStatusEl
   ) {
     return;
@@ -5864,6 +5924,8 @@ function bindNamedScenarios() {
   const setStatus = (message = "", tone = "") => setMessage(statusEl, message, tone);
   const setSyncStatus = (message = "", tone = "") => setMessage(syncStatusEl, message, tone);
   const setSyncAccount = (message = "", tone = "") => setMessage(syncAccountEl, message, tone);
+  const setSyncMeta = (message = "", tone = "") => setMessage(syncMetaEl, message, tone);
+  const refreshSyncMeta = () => setSyncMeta(buildSyncActivityMessage(readSyncActivity()), "");
 
   const populateScenarioOptions = (selectedName = "") => {
     const scenarios = readNamedScenarios();
@@ -5921,20 +5983,22 @@ function bindNamedScenarios() {
     }
     const session = await ensureScenarioSyncSession();
     if (!session) {
-      if (showStatus) setSyncStatus("Connect Dropbox first to pull scenarios.", "error");
+      if (showStatus) setSyncStatus("Connect Dropbox first to load scenarios.", "error");
       await refreshSyncUi(null);
       return null;
     }
-    if (showStatus) setSyncStatus("Pulling scenarios from Dropbox...", "");
+    if (showStatus) setSyncStatus("Loading scenarios from Dropbox...", "");
     const selectedBeforeSync = String(selectEl.value || "").trim();
     const result = await pullNamedScenariosFromSync(session);
     populateScenarioOptions(selectedBeforeSync);
+    writeSyncActivityRecord("pull", result.remoteCount);
+    refreshSyncMeta();
     await refreshSyncUi(session);
-    if (showStatus) setSyncStatus(`Pulled and merged ${result.mergedCount} scenarios.`, "success");
+    if (showStatus) setSyncStatus(`Loaded ${result.remoteCount} Dropbox scenarios. ${result.mergedCount} scenarios are now available locally.`, "success");
     return result;
   };
 
-  saveBtn.addEventListener("click", () => {
+  saveBtn.addEventListener("click", async () => {
     const name = String(nameEl.value || "").trim();
     if (!name) {
       setStatus("Enter a scenario name first.", "error");
@@ -5950,8 +6014,28 @@ function bindNamedScenarios() {
     populateScenarioOptions(name);
     selectEl.value = name;
     setStatus(`Saved scenario: ${name}`, "success");
-    if (isSyncConfigured()) {
-      setSyncStatus("Saved locally. Push to Dropbox when you want to update the shared sync file.", "");
+
+    if (!isSyncConfigured()) return;
+    if (!syncAutoPushSaveEl.checked) {
+      setSyncStatus("Saved locally. Use Save to Dropbox when you want to update the shared sync file.", "");
+      return;
+    }
+
+    try {
+      const session = await ensureScenarioSyncSession();
+      if (!session) {
+        setSyncStatus("Saved locally. Connect Dropbox to enable auto-save.", "");
+        await refreshSyncUi(null);
+        return;
+      }
+      setSyncStatus("Saved locally. Saving to Dropbox...", "");
+      const result = await pushNamedScenariosToSync(session);
+      writeSyncActivityRecord("push", result.pushedCount);
+      refreshSyncMeta();
+      await refreshSyncUi(session);
+      setSyncStatus(`Saved locally and to Dropbox (${result.pushedCount} scenarios).`, "success");
+    } catch (error) {
+      setSyncStatus(describeSyncError(error, "Saved locally, but Dropbox save failed"), "error");
     }
   });
 
@@ -6051,7 +6135,7 @@ function bindNamedScenarios() {
       nameEl.value = importedName;
       setStatus(`Imported scenario: ${importedName}`, "success");
       if (isSyncConfigured()) {
-        setSyncStatus("Imported locally. Push to Dropbox when you want to update the shared sync file.", "");
+        setSyncStatus("Imported locally. Use Save to Dropbox when you want to update the shared sync file.", "");
       }
     } catch (error) {
       setStatus(error?.message === "Invalid scenario file" ? error.message : "Unable to import scenario file.", "error");
@@ -6078,7 +6162,7 @@ function bindNamedScenarios() {
     if (nameEl.value.trim() === name) nameEl.value = "";
     setStatus(`Deleted scenario: ${name}`, "success");
     if (isSyncConfigured()) {
-      setSyncStatus("Deleted locally. Push to Dropbox when you want to update the shared sync file.", "");
+      setSyncStatus("Deleted locally. Use Save to Dropbox when you want to update the shared sync file.", "");
     }
   });
 
@@ -6118,14 +6202,16 @@ function bindNamedScenarios() {
     try {
       const session = await ensureScenarioSyncSession();
       if (!session) {
-        setSyncStatus("Connect Dropbox first to push scenarios.", "error");
+        setSyncStatus("Connect Dropbox first to save scenarios.", "error");
         await refreshSyncUi(null);
         return;
       }
-      setSyncStatus("Pushing scenarios to Dropbox...", "");
+      setSyncStatus("Saving scenarios to Dropbox...", "");
       const result = await pushNamedScenariosToSync(session);
       await refreshSyncUi(session);
-      setSyncStatus(`Pushed ${result.pushedCount} scenarios to Dropbox.`, "success");
+      writeSyncActivityRecord("push", result.pushedCount);
+      refreshSyncMeta();
+      setSyncStatus(`Saved ${result.pushedCount} scenarios to Dropbox.`, "success");
     } catch (error) {
       setSyncStatus(describeSyncError(error, "Unable to push scenarios to Dropbox"), "error");
     }
@@ -6139,12 +6225,18 @@ function bindNamedScenarios() {
   });
 
   populateScenarioOptions();
+  refreshSyncMeta();
   void (async () => {
     try {
       const session = await ensureScenarioSyncSession();
       await refreshSyncUi(session);
       if (session) {
-        setSyncStatus("Dropbox connected. Pull or push scenarios when you are ready.", "success");
+        if (syncAutoPullEl.checked) {
+          await pullScenariosNow({ showStatus: false });
+          setSyncStatus("Dropbox connected. Shared scenarios loaded automatically.", "success");
+        } else {
+          setSyncStatus("Dropbox connected. Load or save scenarios when you are ready.", "success");
+        }
       } else {
         setSyncStatus("", "");
       }
