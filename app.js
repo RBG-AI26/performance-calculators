@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.9.4";
+const APP_VERSION = "v7.9.5";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -3729,11 +3729,12 @@ function parseSyncScenarioBundle(rawText) {
 async function downloadDropboxScenarioBundle(session) {
   const config = getSyncConfig();
   const arg = JSON.stringify({ path: config.dropboxSyncFilePath });
-  const url = new URL("https://content.dropboxapi.com/2/files/download");
-  url.searchParams.set("authorization", `Bearer ${session?.accessToken || ""}`);
-  url.searchParams.set("arg", arg);
-  url.searchParams.set("reject_cors_preflight", "true");
-  const content = await dropboxApiRequest(url.toString(), {
+  const query = [
+    `authorization=${encodeURIComponent(`Bearer ${session?.accessToken || ""}`)}`,
+    `arg=${encodeURIComponent(arg)}`,
+    "reject_cors_preflight=true",
+  ].join("&");
+  const content = await dropboxApiRequest(`https://content.dropboxapi.com/2/files/download?${query}`, {
     headers: {
       "Content-Type": "text/plain; charset=dropbox-cors-hack",
     },
@@ -3755,11 +3756,12 @@ async function uploadDropboxScenarioBundle(session, scenarios) {
     mute: true,
     strict_conflict: false,
   });
-  const url = new URL("https://content.dropboxapi.com/2/files/upload");
-  url.searchParams.set("authorization", `Bearer ${session?.accessToken || ""}`);
-  url.searchParams.set("arg", arg);
-  url.searchParams.set("reject_cors_preflight", "true");
-  await dropboxApiRequest(url.toString(), {
+  const query = [
+    `authorization=${encodeURIComponent(`Bearer ${session?.accessToken || ""}`)}`,
+    `arg=${encodeURIComponent(arg)}`,
+    "reject_cors_preflight=true",
+  ].join("&");
+  await dropboxApiRequest(`https://content.dropboxapi.com/2/files/upload?${query}`, {
     headers: {
       "Content-Type": "text/plain; charset=dropbox-cors-hack",
     },
