@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.9.5";
+const APP_VERSION = "v7.9.6";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -3474,18 +3474,20 @@ function getSyncRedirectUrl() {
 }
 
 async function readSyncError(response) {
+  const requestId = response.headers?.get?.("x-dropbox-request-id") || "";
   try {
     const payload = await response.json();
-    return (
+    const message =
       String(payload?.error_summary || payload?.error_description || payload?.error || payload?.message || payload?.msg || "").trim() ||
-      `Request failed (${response.status})`
-    );
+      `Request failed (${response.status})`;
+    return requestId ? `${message} [req ${requestId}]` : message;
   } catch {
     try {
       const text = await response.text();
-      return text || `Request failed (${response.status})`;
+      const message = text || `Request failed (${response.status})`;
+      return requestId ? `${message} [req ${requestId}]` : message;
     } catch {
-      return `Request failed (${response.status})`;
+      return requestId ? `Request failed (${response.status}) [req ${requestId}]` : `Request failed (${response.status})`;
     }
   }
 }
@@ -3752,9 +3754,6 @@ async function uploadDropboxScenarioBundle(session, scenarios) {
   const arg = JSON.stringify({
     path: config.dropboxSyncFilePath,
     mode: { ".tag": "overwrite" },
-    autorename: false,
-    mute: true,
-    strict_conflict: false,
   });
   const query = [
     `authorization=${encodeURIComponent(`Bearer ${session?.accessToken || ""}`)}`,
