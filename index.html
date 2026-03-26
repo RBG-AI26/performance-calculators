@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.10.1</p>
+        <p class="app-version" id="app-version">Version v7.10.2</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -654,15 +654,8 @@
 
       <section class="panel" data-family="altitude" aria-labelledby="conversion-heading">
         <h2 id="conversion-heading">IAS / Mach / TAS (ISA model)</h2>
+        <p class="module-note">Last edited speed box is treated as the given input.</p>
         <form id="conversion-form" class="grid">
-          <label>
-            Input Mode
-            <select id="conv-mode">
-              <option value="ias" selected>Given IAS</option>
-              <option value="mach">Given Mach</option>
-              <option value="tas">Given TAS</option>
-            </select>
-          </label>
           <label>
             IAS (kt)
             <input type="number" step="1" id="conv-ias" value="279" />

@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.10.1";
+const APP_VERSION = "v7.10.2";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -5783,7 +5783,6 @@ function bindLoseTime() {
 function bindConversion() {
   const form = document.querySelector("#conversion-form");
   const out = document.querySelector("#conversion-out");
-  const modeEl = document.querySelector("#conv-mode");
   const iasEl = document.querySelector("#conv-ias");
   const machEl = document.querySelector("#conv-mach");
   const tasEl = document.querySelector("#conv-tas");
@@ -5791,17 +5790,22 @@ function bindConversion() {
   const oatEl = document.querySelector("#conv-oat");
   const isaDevEl = document.querySelector("#conv-isa-dev");
   let lastTempSource = "temp";
+  let lastSpeedSource = "ias";
 
-  function toggleInputs() {
-    const mode = modeEl.value;
-    iasEl.disabled = mode !== "ias";
-    machEl.disabled = mode !== "mach";
-    tasEl.disabled = mode !== "tas";
+  function setActiveSpeedSource(source) {
+    lastSpeedSource = source;
+    iasEl.classList.toggle("input-derived", source !== "ias");
+    machEl.classList.toggle("input-derived", source !== "mach");
+    tasEl.classList.toggle("input-derived", source !== "tas");
   }
 
-  modeEl.addEventListener("change", () => {
-    toggleInputs();
-    form.dispatchEvent(new Event("submit"));
+  [
+    [iasEl, "ias"],
+    [machEl, "mach"],
+    [tasEl, "tas"],
+  ].forEach(([el, source]) => {
+    el.addEventListener("focus", () => setActiveSpeedSource(source));
+    el.addEventListener("input", () => setActiveSpeedSource(source));
   });
   isaDevEl.addEventListener("input", () => {
     lastTempSource = "isa-dev";
@@ -5812,7 +5816,6 @@ function bindConversion() {
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    const mode = modeEl.value;
     if (fieldIsBlank(flEl.value)) {
       renderValidation(out, "Missing required input: Alt/FL");
       return;
@@ -5821,15 +5824,11 @@ function bindConversion() {
       renderValidation(out, "Missing required input: ISA Deviation or Temperature");
       return;
     }
-    if (
-      (mode === "ias" && fieldIsBlank(iasEl.value)) ||
-      (mode === "mach" && fieldIsBlank(machEl.value)) ||
-      (mode === "tas" && fieldIsBlank(tasEl.value))
-    ) {
-      renderValidation(
-        out,
-        `Missing required input: ${mode === "ias" ? "IAS" : mode === "mach" ? "Mach" : "TAS"}`,
-      );
+    const sourceEl =
+      lastSpeedSource === "ias" ? iasEl : lastSpeedSource === "mach" ? machEl : tasEl;
+    const sourceLabel = lastSpeedSource === "ias" ? "IAS" : lastSpeedSource === "mach" ? "Mach" : "TAS";
+    if (fieldIsBlank(sourceEl.value)) {
+      renderValidation(out, `Missing required input: ${sourceLabel}`);
       return;
     }
     try {
@@ -5863,13 +5862,13 @@ function bindConversion() {
       });
 
       let result;
-      if (mode === "ias") {
+      if (lastSpeedSource === "ias") {
         result = iasToMachTas({
           iasKt: parseNum(iasEl.value),
           pressurePa: atmosphere.pressurePa,
           speedOfSoundMps: atmosphere.speedOfSoundMps,
         });
-      } else if (mode === "mach") {
+      } else if (lastSpeedSource === "mach") {
         result = machToIasTas({
           mach: parseNum(machEl.value),
           pressurePa: atmosphere.pressurePa,
@@ -5883,7 +5882,12 @@ function bindConversion() {
         });
       }
 
+      iasEl.value = formatInputNumber(result.iasKt, 0);
+      machEl.value = formatInputNumber(result.mach, 3);
+      tasEl.value = formatInputNumber(result.tasKt, 0);
+
       renderRows(out, [
+        ["Input Basis", sourceLabel],
         ["IAS", `${format(result.iasKt, 0)} kt`],
         ["Mach", format(result.mach, 3)],
         ["TAS", `${format(result.tasKt, 0)} kt`],
@@ -5897,7 +5901,7 @@ function bindConversion() {
     }
   });
 
-  toggleInputs();
+  setActiveSpeedSource(lastSpeedSource);
   applyTemperatureFieldStyle({
     sourceUsed: lastTempSource,
     isaDeviationEl: isaDevEl,

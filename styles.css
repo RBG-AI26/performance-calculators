@@ -275,6 +275,10 @@ body {
   color: var(--muted);
 }
 
+.input-derived {
+  opacity: 0.72;
+}
+
 .submodule-title {
   margin: 0.35rem 0 0.45rem;
   font-size: 1.02rem;
