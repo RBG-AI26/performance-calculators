@@ -4899,16 +4899,32 @@ function bindLrcAltitudeLimits() {
   const out = document.querySelector("#lrc-altitude-out");
   if (!form || !out) return;
 
+  const weightEl = document.querySelector("#lrc-alt-weight");
   const isaDevEl = document.querySelector("#lrc-alt-isa-dev");
   const tempEl = document.querySelector("#lrc-alt-temp");
   const currentAltEl = document.querySelector("#lrc-alt-current");
   const targetAltEl = document.querySelector("#lrc-alt-target");
   let lastTempSource = "isa-dev";
+  const triggerRecalculate = () => {
+    form.dispatchEvent(new Event("submit"));
+  };
+
   isaDevEl.addEventListener("input", () => {
     lastTempSource = "isa-dev";
   });
   tempEl.addEventListener("input", () => {
     lastTempSource = "temp";
+  });
+
+  [weightEl, isaDevEl, tempEl, currentAltEl, targetAltEl].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("change", triggerRecalculate);
+    el.addEventListener("blur", triggerRecalculate);
+    el.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      triggerRecalculate();
+    });
   });
 
   form.addEventListener("submit", (event) => {
@@ -4917,7 +4933,7 @@ function bindLrcAltitudeLimits() {
     const hasTargetOptimum = targetAltRaw !== "";
     if (
       missingFieldsBanner(out, [
-        fieldIsBlank(document.querySelector("#lrc-alt-weight").value) ? "Weight" : "",
+        fieldIsBlank(weightEl.value) ? "Weight" : "",
         hasTargetOptimum && fieldIsBlank(currentAltEl.value) ? "Current Alt/FL" : "",
       ])
     ) {
@@ -4928,7 +4944,7 @@ function bindLrcAltitudeLimits() {
       return;
     }
     try {
-      const weightT = parseNum(document.querySelector("#lrc-alt-weight").value);
+      const weightT = parseNum(weightEl.value);
       const currentAltRaw = String(currentAltEl.value ?? "").trim();
       const hasCurrentAlt = currentAltRaw !== "";
       const currentAltInput = hasCurrentAlt ? parseAltOrFlInput(currentAltRaw, "Current Alt/FL") : null;
@@ -5077,7 +5093,7 @@ function bindLrcAltitudeLimits() {
     isaDeviationEl: isaDevEl,
     temperatureEl: tempEl,
   });
-  form.dispatchEvent(new Event("submit"));
+  triggerRecalculate();
 }
 
 function bindEngineOut() {
