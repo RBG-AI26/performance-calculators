@@ -4583,7 +4583,6 @@ function bindTripFuel() {
           ? [
               ["Current Weight", `${format(tripWeightContext.currentWeightT, 1)} t`],
               ["Solved Landing Weight", `${format(tripWeightContext.solvedLandingWeightT, 1)} t`],
-              ["Implied Flight Fuel Burn", `${format(tripWeightContext.impliedFlightFuelBurnKg, 0)} kg`],
             ]
           : []),
         ["Flight Fuel", `${format(result.flightFuelKg, 0)} kg`],
@@ -5103,7 +5102,6 @@ function bindEngineOut() {
             "Driftdown Level Off Altitude",
             `${format(driftLevelOff.levelOffAltFt, 0)} ft (FL${format(driftLevelOff.levelOffAltFt / 100, 0)})`,
           ],
-          ["Driftdown Air Distance (ANM)", `${format(driftAnm, 0)} nm`],
           ["Driftdown + Cruise Fuel", `${format(driftFuelTime.fuelKg, 0)} kg`],
           ["Driftdown + Cruise Time", `${format(driftFuelTime.timeMinutes, 1)} min (${formatMinutes(driftFuelTime.timeMinutes)})`],
           ["__spacer__", ""],
