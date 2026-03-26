@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.9.6";
+const APP_VERSION = "v7.9.8";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -3492,6 +3492,31 @@ async function readSyncError(response) {
   }
 }
 
+function describeSyncError(error, fallback = "Request failed") {
+  const sdkSummary = String(
+    error?.error?.error_summary ||
+      error?.error_summary ||
+      error?.error?.error ||
+      error?.error ||
+      error?.message ||
+      "",
+  ).trim();
+  const requestId = String(
+    error?.headers?.get?.("x-dropbox-request-id") ||
+      error?.status?.headers?.get?.("x-dropbox-request-id") ||
+      error?.response?.headers?.get?.("x-dropbox-request-id") ||
+      error?.requestId ||
+      "",
+  ).trim();
+  const statusCode = Number(error?.status || error?.response?.status || error?.statusCode);
+  let message = sdkSummary;
+  if (!message && Number.isFinite(statusCode)) {
+    message = `${fallback} (${statusCode})`;
+  }
+  if (!message) message = fallback;
+  return requestId ? `${message} [req ${requestId}]` : message;
+}
+
 function base64UrlEncodeBytes(bytes) {
   if (typeof btoa !== "function") {
     throw new Error("This browser does not support Dropbox sync");
@@ -3537,23 +3562,25 @@ async function requestDropboxToken(params) {
 }
 
 async function fetchDropboxAccount(accessToken) {
-  const response = await fetch("https://api.dropboxapi.com/2/users/get_current_account", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: "null",
-  });
-  if (!response.ok) {
-    throw new Error(await readSyncError(response));
-  }
-  const payload = await response.json();
+  const dbx = createDropboxClient({ accessToken });
+  const response = await dbx.usersGetCurrentAccount();
+  const payload = response?.result || response;
   return {
     id: String(payload?.account_id || "").trim(),
     email: String(payload?.email || "").trim(),
     name: String(payload?.name?.display_name || "").trim(),
   };
+}
+
+function createDropboxClient(session) {
+  const DropboxSdk = window.Dropbox?.Dropbox;
+  if (typeof DropboxSdk !== "function") {
+    throw new Error("Dropbox SDK unavailable. Refresh and try again.");
+  }
+  return new DropboxSdk({
+    accessToken: session?.accessToken || "",
+    fetch: window.fetch.bind(window),
+  });
 }
 
 async function startDropboxAuthFlow() {
@@ -3730,41 +3757,36 @@ function parseSyncScenarioBundle(rawText) {
 
 async function downloadDropboxScenarioBundle(session) {
   const config = getSyncConfig();
-  const arg = JSON.stringify({ path: config.dropboxSyncFilePath });
-  const query = [
-    `authorization=${encodeURIComponent(`Bearer ${session?.accessToken || ""}`)}`,
-    `arg=${encodeURIComponent(arg)}`,
-    "reject_cors_preflight=true",
-  ].join("&");
-  const content = await dropboxApiRequest(`https://content.dropboxapi.com/2/files/download?${query}`, {
-    headers: {
-      "Content-Type": "text/plain; charset=dropbox-cors-hack",
-    },
-    body: "",
-    responseType: "text",
-    allowNotFound: true,
-  });
-  if (content === null) return {};
-  return parseSyncScenarioBundle(content);
+  const dbx = createDropboxClient(session);
+  try {
+    const response = await dbx.filesDownload({ path: config.dropboxSyncFilePath });
+    const blob =
+      response?.result?.fileBlob ||
+      response?.fileBlob ||
+      response?.result?.fileBinary ||
+      response?.fileBinary ||
+      null;
+    if (!blob) {
+      throw new Error("Dropbox download returned no file content");
+    }
+    const text = typeof blob === "string" ? blob : await blob.text();
+    return parseSyncScenarioBundle(text);
+  } catch (error) {
+    const summary =
+      String(error?.error?.error_summary || error?.error_summary || error?.message || "").trim();
+    if (summary.includes("not_found")) return {};
+    throw error;
+  }
 }
 
 async function uploadDropboxScenarioBundle(session, scenarios) {
   const config = getSyncConfig();
   const payload = JSON.stringify(buildSyncScenarioBundle(scenarios), null, 2);
-  const arg = JSON.stringify({
+  const dbx = createDropboxClient(session);
+  await dbx.filesUpload({
     path: config.dropboxSyncFilePath,
-    mode: { ".tag": "overwrite" },
-  });
-  const query = [
-    `authorization=${encodeURIComponent(`Bearer ${session?.accessToken || ""}`)}`,
-    `arg=${encodeURIComponent(arg)}`,
-    "reject_cors_preflight=true",
-  ].join("&");
-  await dropboxApiRequest(`https://content.dropboxapi.com/2/files/upload?${query}`, {
-    headers: {
-      "Content-Type": "text/plain; charset=dropbox-cors-hack",
-    },
-    body: payload,
+    mode: "overwrite",
+    contents: payload,
   });
 }
 
@@ -6075,7 +6097,7 @@ function bindNamedScenarios() {
       setSyncStatus("Redirecting to Dropbox...", "");
       await startDropboxAuthFlow();
     } catch (error) {
-      setSyncStatus(String(error?.message || "Unable to connect Dropbox."), "error");
+      setSyncStatus(describeSyncError(error, "Unable to connect Dropbox"), "error");
     }
   });
 
@@ -6083,7 +6105,7 @@ function bindNamedScenarios() {
     try {
       await pullScenariosNow({ showStatus: true });
     } catch (error) {
-      setSyncStatus(String(error?.message || "Unable to pull scenarios from Dropbox."), "error");
+      setSyncStatus(describeSyncError(error, "Unable to pull scenarios from Dropbox"), "error");
     }
   });
 
@@ -6105,7 +6127,7 @@ function bindNamedScenarios() {
       await refreshSyncUi(session);
       setSyncStatus(`Pushed ${result.pushedCount} scenarios to Dropbox.`, "success");
     } catch (error) {
-      setSyncStatus(String(error?.message || "Unable to push scenarios to Dropbox."), "error");
+      setSyncStatus(describeSyncError(error, "Unable to push scenarios to Dropbox"), "error");
     }
   });
 
@@ -6130,7 +6152,7 @@ function bindNamedScenarios() {
       clearSyncAuthState();
       clearSyncSession();
       await refreshSyncUi(null);
-      setSyncStatus(String(error?.message || "Unable to initialize Dropbox sync."), "error");
+      setSyncStatus(describeSyncError(error, "Unable to initialize Dropbox sync"), "error");
     }
   })();
 }
