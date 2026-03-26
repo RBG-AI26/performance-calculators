@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.9.1";
+const APP_VERSION = "v7.9.2";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -3746,7 +3746,7 @@ async function uploadDropboxScenarioBundle(session, scenarios) {
       "Content-Type": "application/octet-stream",
       "Dropbox-API-Arg": JSON.stringify({
         path: config.dropboxSyncFilePath,
-        mode: "overwrite",
+        mode: { ".tag": "overwrite" },
         autorename: false,
         mute: true,
         strict_conflict: false,
