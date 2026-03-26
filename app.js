@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.10.0";
+const APP_VERSION = "v7.10.1";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -55,6 +55,8 @@ const LOSE_TIME_REFERENCE_DESCENT_ALT_AXIS_FT = [0, 25000, 27000, 29000, 31000, 
 const LOSE_TIME_REFERENCE_DESCENT_DISTANCE_NM = [0, 94, 101, 109, 116, 123, 129, 135, 142, 150, 156];
 const LOSE_TIME_REFERENCE_DESCENT_TIME_MIN = [0, 20, 21, 22, 23, 23, 24, 25, 26, 27, 28];
 const LOSE_TIME_MIN_OPTION_D_MACH = 0.4;
+const LOSE_TIME_OPTION_D_REFERENCE_DESCENT_IAS_KT = 310;
+const LOSE_TIME_MIN_OPTION_D_DESCENT_IAS_KT = 140;
 const GO_AROUND_ANTI_ICE_ADJUSTMENT = {
   engineOn: { oatLe8: -0.1, oatGt8Le20: -0.2 },
   engineWingOn: { oatLe8: -0.1, oatGt8Le20: -0.2 },
@@ -98,6 +100,38 @@ function parseAltOrFlInput(rawInput, label = "Alt/FL") {
     isThreeDigitFl,
     altitudeFt,
     flightLevel,
+  };
+}
+
+function parseLoseTimeOptionDSpeedInput(rawInput) {
+  const rawText = String(rawInput ?? "").trim();
+  if (rawText === "") {
+    throw new Error("Option D speed must be entered");
+  }
+
+  const value = Number(rawText);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error("Option D speed must be > 0");
+  }
+
+  const isMachInput = rawText.startsWith(".") || rawText.startsWith("0.");
+  if (isMachInput) {
+    if (value >= 1) {
+      throw new Error("Option D Mach must be < 1.0");
+    }
+    return {
+      mode: "mach",
+      mach: value,
+      descentIasKt: null,
+      displayText: `Mach ${value.toFixed(3)}`,
+    };
+  }
+
+  return {
+    mode: "ias",
+    mach: null,
+    descentIasKt: value,
+    displayText: `${format(value, 0)} kt`,
   };
 }
 
@@ -2769,7 +2803,9 @@ function buildLoseTimeCruiseDescentOption({
   requiredDelayMin,
   cruiseWindKt,
   distanceToTodNm,
-  descentIasKt,
+  descentIasKt = null,
+  fixedCruiseMach = null,
+  speedInputMode = "ias",
   perfAdjust,
   targetTimeMin,
   isaDeviationC = 0,
@@ -2783,6 +2819,121 @@ function buildLoseTimeCruiseDescentOption({
   }
 
   const baselineCruise = getLrcCruiseState(startWeightT, startFl, cruiseWindKt, perfAdjust);
+  if (speedInputMode === "mach") {
+    if (!Number.isFinite(fixedCruiseMach) || fixedCruiseMach <= 0 || fixedCruiseMach >= 1) {
+      throw new Error("Option D Mach must be > 0 and < 1.0");
+    }
+
+    const baseline = simulateCruiseDescentTimeToFix({
+      distanceNm,
+      startFl,
+      cruiseWindKt,
+      distanceToTodNm,
+      descentIasKt: LOSE_TIME_OPTION_D_REFERENCE_DESCENT_IAS_KT,
+      cruiseMach: fixedCruiseMach,
+      isaDeviationC,
+    });
+    const resolvedTargetTimeMin =
+      Number.isFinite(targetTimeMin) && targetTimeMin > 0 ? targetTimeMin : baseline.totalTimeMin + requiredDelayMin;
+
+    if (requiredDelayMin <= 1e-9) {
+      return {
+        inputMode: "mach",
+        inputCruiseMach: fixedCruiseMach,
+        inputDescentIasKt: null,
+        baseline,
+        solution: baseline,
+        targetTimeMin: resolvedTargetTimeMin,
+        residualHoldMin: 0,
+        requiredMach: fixedCruiseMach,
+        requiredDescentIasKt: baseline.descentIasAbove10kKt,
+        limitedByMaxMach: false,
+        limitedByMinIas: false,
+        isaDeviationC,
+        temperatureC,
+      };
+    }
+
+    const minimumIasSolution = simulateCruiseDescentTimeToFix({
+      distanceNm,
+      startFl,
+      cruiseWindKt,
+      distanceToTodNm,
+      descentIasKt: LOSE_TIME_MIN_OPTION_D_DESCENT_IAS_KT,
+      cruiseMach: fixedCruiseMach,
+      isaDeviationC,
+    });
+
+    if (minimumIasSolution.totalTimeMin < resolvedTargetTimeMin) {
+      return {
+        inputMode: "mach",
+        inputCruiseMach: fixedCruiseMach,
+        inputDescentIasKt: null,
+        baseline,
+        solution: minimumIasSolution,
+        targetTimeMin: resolvedTargetTimeMin,
+        residualHoldMin: resolvedTargetTimeMin - minimumIasSolution.totalTimeMin,
+        requiredMach: fixedCruiseMach,
+        requiredDescentIasKt: minimumIasSolution.descentIasAbove10kKt,
+        limitedByMaxMach: false,
+        limitedByMinIas: true,
+        isaDeviationC,
+        temperatureC,
+      };
+    }
+
+    let lowIas = LOSE_TIME_MIN_OPTION_D_DESCENT_IAS_KT;
+    let highIas = LOSE_TIME_OPTION_D_REFERENCE_DESCENT_IAS_KT;
+    let lowSolution = minimumIasSolution;
+    let highSolution = baseline;
+
+    for (let i = 0; i < 32; i += 1) {
+      const midIas = (lowIas + highIas) / 2;
+      const midSolution = simulateCruiseDescentTimeToFix({
+        distanceNm,
+        startFl,
+        cruiseWindKt,
+        distanceToTodNm,
+        descentIasKt: midIas,
+        cruiseMach: fixedCruiseMach,
+        isaDeviationC,
+      });
+      if (midSolution.totalTimeMin > resolvedTargetTimeMin) {
+        lowIas = midIas;
+        lowSolution = midSolution;
+      } else {
+        highIas = midIas;
+        highSolution = midSolution;
+      }
+    }
+
+    const solution =
+      Math.abs(lowSolution.totalTimeMin - resolvedTargetTimeMin) <=
+      Math.abs(highSolution.totalTimeMin - resolvedTargetTimeMin)
+        ? lowSolution
+        : highSolution;
+
+    return {
+      inputMode: "mach",
+      inputCruiseMach: fixedCruiseMach,
+      inputDescentIasKt: null,
+      baseline,
+      solution,
+      targetTimeMin: resolvedTargetTimeMin,
+      residualHoldMin: 0,
+      requiredMach: fixedCruiseMach,
+      requiredDescentIasKt: solution.descentIasAbove10kKt,
+      limitedByMaxMach: false,
+      limitedByMinIas: false,
+      isaDeviationC,
+      temperatureC,
+    };
+  }
+
+  if (!Number.isFinite(descentIasKt) || descentIasKt <= 0) {
+    throw new Error("Option D descent IAS must be > 0");
+  }
+
   const baseline = simulateCruiseDescentTimeToFix({
     distanceNm,
     startFl,
@@ -2797,12 +2948,17 @@ function buildLoseTimeCruiseDescentOption({
 
   if (requiredDelayMin <= 1e-9) {
     return {
+      inputMode: "ias",
+      inputCruiseMach: null,
+      inputDescentIasKt: descentIasKt,
       baseline,
       solution: baseline,
       targetTimeMin: resolvedTargetTimeMin,
       residualHoldMin: 0,
       requiredMach: baselineCruise.mach,
+      requiredDescentIasKt: baseline.descentIasAbove10kKt,
       limitedByMaxMach: false,
+      limitedByMinIas: false,
       isaDeviationC,
       temperatureC,
     };
@@ -2810,12 +2966,17 @@ function buildLoseTimeCruiseDescentOption({
 
   if (baseline.totalTimeMin > resolvedTargetTimeMin) {
     return {
+      inputMode: "ias",
+      inputCruiseMach: null,
+      inputDescentIasKt: descentIasKt,
       baseline,
       solution: baseline,
       targetTimeMin: resolvedTargetTimeMin,
       residualHoldMin: 0,
       requiredMach: baselineCruise.mach,
+      requiredDescentIasKt: baseline.descentIasAbove10kKt,
       limitedByMaxMach: true,
+      limitedByMinIas: false,
       isaDeviationC,
       temperatureC,
     };
@@ -2834,12 +2995,17 @@ function buildLoseTimeCruiseDescentOption({
 
   if (minimumMachSolution.totalTimeMin < resolvedTargetTimeMin) {
     return {
+      inputMode: "ias",
+      inputCruiseMach: null,
+      inputDescentIasKt: descentIasKt,
       baseline,
       solution: minimumMachSolution,
       targetTimeMin: resolvedTargetTimeMin,
       residualHoldMin: resolvedTargetTimeMin - minimumMachSolution.totalTimeMin,
       requiredMach: minimumMach,
+      requiredDescentIasKt: minimumMachSolution.descentIasAbove10kKt,
       limitedByMaxMach: false,
+      limitedByMinIas: false,
       isaDeviationC,
       temperatureC,
     };
@@ -2877,12 +3043,17 @@ function buildLoseTimeCruiseDescentOption({
       : highSolution;
 
   return {
+    inputMode: "ias",
+    inputCruiseMach: null,
+    inputDescentIasKt: descentIasKt,
     baseline,
     solution,
     targetTimeMin: resolvedTargetTimeMin,
     residualHoldMin: 0,
     requiredMach: solution.cruiseMach,
+    requiredDescentIasKt: solution.descentIasAbove10kKt,
     limitedByMaxMach: false,
+    limitedByMinIas: false,
     isaDeviationC,
     temperatureC,
   };
@@ -5431,7 +5602,7 @@ function bindLoseTime() {
       if (hasOptionDInputs) {
         try {
           const distanceToTodNm = parseNum(todDistanceEl.value);
-          const descentIasKt = parseNum(descentIasEl.value);
+          const optionDSpeedInput = parseLoseTimeOptionDSpeedInput(descentIasEl.value);
           const optionDTemperaturePair = resolveTemperaturePair({
             isaDeviationRaw: optionDIsaDevEl?.value ?? "",
             temperatureRaw: optionDTempEl?.value ?? "",
@@ -5454,7 +5625,9 @@ function bindLoseTime() {
             requiredDelayMin,
             cruiseWindKt: windKt,
             distanceToTodNm,
-            descentIasKt,
+            descentIasKt: optionDSpeedInput.descentIasKt,
+            fixedCruiseMach: optionDSpeedInput.mach,
+            speedInputMode: optionDSpeedInput.mode,
             perfAdjust,
             isaDeviationC: optionDTemperaturePair.isaDeviationC,
             temperatureC: optionDTemperaturePair.temperatureC,
@@ -5465,30 +5638,52 @@ function bindLoseTime() {
               : "Option D uses Distance to TOD and estimated fix crossing altitude from the descent table, and does not apply the Level Change inputs";
           const optionDTimeMin = optionD.solution.totalTimeMin + optionD.residualHoldMin;
           const optionDDelayAchievedMin = optionDTimeMin - optionD.baseline.totalTimeMin;
-          const optionDMaxMachNote = optionD.limitedByMaxMach
+          const optionDConstraintNote = optionD.limitedByMaxMach
             ? `Option D has no exact solution for the selected descent IAS. The target is ${format(requiredDelayMin, 2)} min delay, but the minimum achievable delay at LRC Mach is ${format(optionDDelayAchievedMin, 2)} min`
-            : "";
+            : optionD.limitedByMinIas
+              ? `Option D has no exact solution for the selected cruise Mach. The target is ${format(requiredDelayMin, 2)} min delay, but the maximum achievable delay down to ${format(LOSE_TIME_MIN_OPTION_D_DESCENT_IAS_KT, 0)} kt descent IAS is ${format(optionDDelayAchievedMin, 2)} min`
+              : "";
           const hasDescentSegment = optionD.solution.descentDistanceNm > 0.001;
           optionDRows = [
             ["__spacer__", ""],
             ["__section__", "Option D (Cruise + Descent)"],
+            ["Option D Speed Input", optionDSpeedInput.displayText],
             ["Option D Baseline Time to Fix", formatMinutes(optionD.baseline.totalTimeMin)],
             ["Option D Time to Fix (target)", formatMinutes(optionD.targetTimeMin)],
-            [optionD.limitedByMaxMach ? "Option D Minimum Achievable Time" : "Option D Time", formatMinutes(optionDTimeMin)],
             [
-              optionD.limitedByMaxMach ? "Option D Minimum Achievable Delay" : "Option D Delay Achieved",
+              optionD.limitedByMaxMach
+                ? "Option D Minimum Achievable Time"
+                : optionD.limitedByMinIas
+                  ? "Option D Maximum Achievable Time"
+                  : "Option D Time",
+              formatMinutes(optionDTimeMin),
+            ],
+            [
+              optionD.limitedByMaxMach
+                ? "Option D Minimum Achievable Delay"
+                : optionD.limitedByMinIas
+                  ? "Option D Maximum Achievable Delay"
+                  : "Option D Delay Achieved",
               `${format(optionDDelayAchievedMin, 2)} min`,
             ],
             ["Option D Estimated Fix Crossing Altitude", `${format(optionD.solution.fixCrossingAltitudeFt, 0)} ft`],
             ["Option D ISA Deviation / Temperature Used", `${format(optionD.isaDeviationC, 1)} °C / ${format(optionD.temperatureC, 1)} °C`],
             [
-              optionD.limitedByMaxMach ? "Option D Minimum-Delay Cruise / Initial Descent Mach" : "Option D Cruise / Initial Descent Mach",
+              optionD.inputMode === "mach"
+                ? "Option D Cruise / Initial Descent Mach"
+                : optionD.limitedByMaxMach
+                  ? "Option D Minimum-Delay Cruise / Initial Descent Mach"
+                  : "Option D Cruise / Initial Descent Mach",
               format(optionD.requiredMach, 3),
             ],
             ...(hasDescentSegment
               ? [
                   [
-                    "Option D Descent IAS (>10000 / <=10000)",
+                    optionD.inputMode === "mach"
+                      ? optionD.limitedByMinIas
+                        ? "Option D Maximum-Delay Descent IAS (>10000 / <=10000)"
+                        : "Option D Required Descent IAS (>10000 / <=10000)"
+                      : "Option D Descent IAS (>10000 / <=10000)",
                     `${format(optionD.solution.descentIasAbove10kKt, 0)} / ${format(optionD.solution.descentIasBelow10kKt, 0)} kt`,
                   ],
                   ["Option D Mach/IAS Crossover Altitude", `${format(optionD.solution.crossoverAltitudeFt, 0)} ft`],
@@ -5511,7 +5706,7 @@ function bindLoseTime() {
                 ]
               : []),
             ["Option D Residual Hold at Fix", `${format(optionD.residualHoldMin, 2)} min`],
-            ...(optionDMaxMachNote ? [["__warning__", optionDMaxMachNote]] : []),
+            ...(optionDConstraintNote ? [["__warning__", optionDConstraintNote]] : []),
             ...(optionDLevelChangeNote ? [["__warning__", optionDLevelChangeNote]] : []),
           ];
         } catch (optionDError) {
@@ -5529,7 +5724,7 @@ function bindLoseTime() {
         optionDRows = [
           ["__spacer__", ""],
           ["__section__", "Option D (Cruise + Descent)"],
-          ["Option D Solution", "Enter Distance to TOD and Descent IAS to enable Option D"],
+          ["Option D Solution", "Enter Distance to TOD and Option D speed to enable Option D"],
         ];
       }
 
