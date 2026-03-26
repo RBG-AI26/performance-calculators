@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.9.3";
+const APP_VERSION = "v7.9.4";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -3664,12 +3664,15 @@ async function getScenarioSyncAccount(session) {
 }
 
 async function dropboxApiRequest(url, { accessToken = "", headers = {}, body, responseType = "json", allowNotFound = false } = {}) {
+  const requestHeaders = {
+    ...headers,
+  };
+  if (accessToken) {
+    requestHeaders.Authorization = `Bearer ${accessToken}`;
+  }
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ...headers,
-    },
+    headers: requestHeaders,
     body,
   });
   if (!response.ok) {
