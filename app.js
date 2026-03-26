@@ -2551,11 +2551,11 @@ function getLinearWindAtAltitudeKt(cruiseWindKt, startAltitudeFt, altitudeFt) {
   return cruiseWindKt * scale;
 }
 
-function getTasAtAltitudeForMach(altitudeFt, mach) {
+function getTasAtAltitudeForMach(altitudeFt, mach, isaDeviationC = 0) {
   const atmosphere = atmosphereFromPressureAltitude({
     pressureAltitudeFt: altitudeFt,
     tempMode: "isa-dev",
-    isaDeviationC: 0,
+    isaDeviationC,
     oatC: 0,
   });
   return {
@@ -2564,11 +2564,11 @@ function getTasAtAltitudeForMach(altitudeFt, mach) {
   };
 }
 
-function getTasAtAltitudeForIas(altitudeFt, iasKt) {
+function getTasAtAltitudeForIas(altitudeFt, iasKt, isaDeviationC = 0) {
   const atmosphere = atmosphereFromPressureAltitude({
     pressureAltitudeFt: altitudeFt,
     tempMode: "isa-dev",
-    isaDeviationC: 0,
+    isaDeviationC,
     oatC: 0,
   });
   const converted = iasToMachTas({
@@ -2583,12 +2583,12 @@ function getTasAtAltitudeForIas(altitudeFt, iasKt) {
   };
 }
 
-function findMachIasCrossoverAltitudeFt(startAltitudeFt, mach, targetIasKt) {
+function findMachIasCrossoverAltitudeFt(startAltitudeFt, mach, targetIasKt, isaDeviationC = 0) {
   const getEquivalentIasAtAltitude = (altitudeFt) => {
     const atmosphere = atmosphereFromPressureAltitude({
       pressureAltitudeFt: altitudeFt,
       tempMode: "isa-dev",
-      isaDeviationC: 0,
+      isaDeviationC,
       oatC: 0,
     });
     return machToIasTas({
@@ -2629,6 +2629,7 @@ function simulateCruiseDescentTimeToFix({
   distanceToTodNm,
   descentIasKt,
   cruiseMach,
+  isaDeviationC = 0,
 }) {
   if (!Number.isFinite(distanceNm) || distanceNm <= 0) {
     throw new Error("Distance to fix must be > 0 NM");
@@ -2659,7 +2660,7 @@ function simulateCruiseDescentTimeToFix({
   const lowAltitudeIasKt = Math.min(descentIasKt, 250);
 
   if (descentDistanceUsedNm <= 1e-7) {
-    const cruiseTasKt = getTasAtAltitudeForMach(startAltitudeFt, cruiseMach).tasKt;
+    const cruiseTasKt = getTasAtAltitudeForMach(startAltitudeFt, cruiseMach, isaDeviationC).tasKt;
     const cruiseGsKt = cruiseTasKt + cruiseWindKt;
     if (cruiseGsKt <= 0) {
       throw new Error("Cruise ground speed <= 0 kt");
@@ -2687,13 +2688,13 @@ function simulateCruiseDescentTimeToFix({
   }
 
   const referenceDescent = getReferenceDescentProfileSegment(startAltitudeFt, fixCrossingAltitudeFt);
-  const cruiseTasKt = getTasAtAltitudeForMach(startAltitudeFt, cruiseMach).tasKt;
+  const cruiseTasKt = getTasAtAltitudeForMach(startAltitudeFt, cruiseMach, isaDeviationC).tasKt;
   const cruiseGsKt = cruiseTasKt + cruiseWindKt;
   if (cruiseGsKt <= 0) {
     throw new Error("Cruise ground speed <= 0 kt");
   }
   const cruiseTimeMin = (cruiseDistanceUsedNm / cruiseGsKt) * 60;
-  const crossoverAltitudeFt = findMachIasCrossoverAltitudeFt(startAltitudeFt, cruiseMach, descentIasKt);
+  const crossoverAltitudeFt = findMachIasCrossoverAltitudeFt(startAltitudeFt, cruiseMach, descentIasKt, isaDeviationC);
 
   const totalAltitudeDeltaFt = startAltitudeFt - fixCrossingAltitudeFt;
   let descentTimeMin = 0;
@@ -2713,13 +2714,13 @@ function simulateCruiseDescentTimeToFix({
 
     let tasKt;
     if (altitudeFt > 10000 && altitudeFt > crossoverAltitudeFt) {
-      tasKt = getTasAtAltitudeForMach(altitudeFt, cruiseMach).tasKt;
+      tasKt = getTasAtAltitudeForMach(altitudeFt, cruiseMach, isaDeviationC).tasKt;
       machSegmentDistanceNm += stepNm;
     } else if (altitudeFt > 10000) {
-      tasKt = getTasAtAltitudeForIas(altitudeFt, descentIasKt).tasKt;
+      tasKt = getTasAtAltitudeForIas(altitudeFt, descentIasKt, isaDeviationC).tasKt;
       iasHighSegmentDistanceNm += stepNm;
     } else {
-      tasKt = getTasAtAltitudeForIas(altitudeFt, lowAltitudeIasKt).tasKt;
+      tasKt = getTasAtAltitudeForIas(altitudeFt, lowAltitudeIasKt, isaDeviationC).tasKt;
       iasLowSegmentDistanceNm += stepNm;
     }
 
@@ -2771,6 +2772,8 @@ function buildLoseTimeCruiseDescentOption({
   descentIasKt,
   perfAdjust,
   targetTimeMin,
+  isaDeviationC = 0,
+  temperatureC = null,
 }) {
   if (!Number.isFinite(startWeightT) || startWeightT <= 0) {
     throw new Error("Current weight must be > 0");
@@ -2787,6 +2790,7 @@ function buildLoseTimeCruiseDescentOption({
     distanceToTodNm,
     descentIasKt,
     cruiseMach: baselineCruise.mach,
+    isaDeviationC,
   });
   const resolvedTargetTimeMin =
     Number.isFinite(targetTimeMin) && targetTimeMin > 0 ? targetTimeMin : baseline.totalTimeMin + requiredDelayMin;
@@ -2799,6 +2803,8 @@ function buildLoseTimeCruiseDescentOption({
       residualHoldMin: 0,
       requiredMach: baselineCruise.mach,
       limitedByMaxMach: false,
+      isaDeviationC,
+      temperatureC,
     };
   }
 
@@ -2810,6 +2816,8 @@ function buildLoseTimeCruiseDescentOption({
       residualHoldMin: 0,
       requiredMach: baselineCruise.mach,
       limitedByMaxMach: true,
+      isaDeviationC,
+      temperatureC,
     };
   }
 
@@ -2821,6 +2829,7 @@ function buildLoseTimeCruiseDescentOption({
     distanceToTodNm,
     descentIasKt,
     cruiseMach: minimumMach,
+    isaDeviationC,
   });
 
   if (minimumMachSolution.totalTimeMin < resolvedTargetTimeMin) {
@@ -2831,6 +2840,8 @@ function buildLoseTimeCruiseDescentOption({
       residualHoldMin: resolvedTargetTimeMin - minimumMachSolution.totalTimeMin,
       requiredMach: minimumMach,
       limitedByMaxMach: false,
+      isaDeviationC,
+      temperatureC,
     };
   }
 
@@ -2848,6 +2859,7 @@ function buildLoseTimeCruiseDescentOption({
       distanceToTodNm,
       descentIasKt,
       cruiseMach: midMach,
+      isaDeviationC,
     });
     if (midSolution.totalTimeMin > resolvedTargetTimeMin) {
       lowMach = midMach;
@@ -2871,6 +2883,8 @@ function buildLoseTimeCruiseDescentOption({
     residualHoldMin: 0,
     requiredMach: solution.cruiseMach,
     limitedByMaxMach: false,
+    isaDeviationC,
+    temperatureC,
   };
 }
 
@@ -5311,6 +5325,9 @@ function bindLoseTime() {
   const newFlEl = document.querySelector("#lt-new-fl");
   const todDistanceEl = document.querySelector("#lt-tod-distance");
   const descentIasEl = document.querySelector("#lt-descent-ias");
+  const optionDIsaDevEl = document.querySelector("#lt-optiond-isa-dev");
+  const optionDTempEl = document.querySelector("#lt-optiond-temp");
+  let lastOptionDTempSource = "isa-dev";
 
   function toggleInputs() {
     const levelNone = levelModeEl.value === "none";
@@ -5321,6 +5338,12 @@ function bindLoseTime() {
   levelModeEl.addEventListener("change", () => {
     toggleInputs();
     form.dispatchEvent(new Event("submit"));
+  });
+  optionDIsaDevEl?.addEventListener("input", () => {
+    lastOptionDTempSource = "isa-dev";
+  });
+  optionDTempEl?.addEventListener("input", () => {
+    lastOptionDTempSource = "temp";
   });
 
   form.addEventListener("submit", (event) => {
@@ -5409,6 +5432,21 @@ function bindLoseTime() {
         try {
           const distanceToTodNm = parseNum(todDistanceEl.value);
           const descentIasKt = parseNum(descentIasEl.value);
+          const optionDTemperaturePair = resolveTemperaturePair({
+            isaDeviationRaw: optionDIsaDevEl?.value ?? "",
+            temperatureRaw: optionDTempEl?.value ?? "",
+            lastSource: lastOptionDTempSource,
+            pressureAltitudeFt: startFl * 100,
+            label: "Option D temperature",
+          });
+          lastOptionDTempSource = optionDTemperaturePair.sourceUsed;
+          if (optionDIsaDevEl) optionDIsaDevEl.value = formatInputNumber(optionDTemperaturePair.isaDeviationC, 1);
+          if (optionDTempEl) optionDTempEl.value = formatInputNumber(optionDTemperaturePair.temperatureC, 1);
+          applyTemperatureFieldStyle({
+            sourceUsed: optionDTemperaturePair.sourceUsed,
+            isaDeviationEl: optionDIsaDevEl,
+            temperatureEl: optionDTempEl,
+          });
           const optionD = buildLoseTimeCruiseDescentOption({
             distanceNm,
             startWeightT,
@@ -5418,6 +5456,8 @@ function bindLoseTime() {
             distanceToTodNm,
             descentIasKt,
             perfAdjust,
+            isaDeviationC: optionDTemperaturePair.isaDeviationC,
+            temperatureC: optionDTemperaturePair.temperatureC,
           });
           const optionDLevelChangeNote =
             levelChangeMode === "none"
@@ -5440,6 +5480,7 @@ function bindLoseTime() {
               `${format(optionDDelayAchievedMin, 2)} min`,
             ],
             ["Option D Estimated Fix Crossing Altitude", `${format(optionD.solution.fixCrossingAltitudeFt, 0)} ft`],
+            ["Option D ISA Deviation / Temperature Used", `${format(optionD.isaDeviationC, 1)} °C / ${format(optionD.temperatureC, 1)} °C`],
             [
               optionD.limitedByMaxMach ? "Option D Minimum-Delay Cruise / Initial Descent Mach" : "Option D Cruise / Initial Descent Mach",
               format(optionD.requiredMach, 3),
@@ -5536,6 +5577,11 @@ function bindLoseTime() {
   });
 
   toggleInputs();
+  applyTemperatureFieldStyle({
+    sourceUsed: lastOptionDTempSource,
+    isaDeviationEl: optionDIsaDevEl,
+    temperatureEl: optionDTempEl,
+  });
   form.dispatchEvent(new Event("submit"));
 }
 
