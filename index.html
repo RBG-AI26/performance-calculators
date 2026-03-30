@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.11.3</p>
+        <p class="app-version" id="app-version">Version v7.11.4</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -40,6 +40,10 @@
               <option value="auto">Auto</option>
             </select>
           </label>
+          <div class="global-setting-actions">
+            <button type="button" id="reset-module-order" class="secondary-button">Reset Module Order</button>
+            <div id="module-order-status" class="scenario-status" aria-live="polite"></div>
+          </div>
           <div class="scenario-toolbar">
             <div class="scenario-toolbar-title">Named Scenarios</div>
             <label>
@@ -81,6 +85,7 @@
         </div>
       </section>
 
+      <div id="module-stack" class="module-stack">
       <section class="panel" data-family="fuel" aria-labelledby="trip-fuel-heading">
         <h2 id="trip-fuel-heading">Trip Fuel</h2>
         <p class="module-note">Short-trip/LRC unified fuel model with ANM blending from 600-800</p>
@@ -735,6 +740,7 @@
         </form>
         <div id="takeoff-crosswind-out" class="results"></div>
       </section>
+      </div>
     </main>
 
     <script src="./data.js"></script>
@@ -746,6 +752,7 @@
     <script src="./diversion_data.js"></script>
     <script src="./go_around_data.js"></script>
     <script src="https://unpkg.com/dropbox@10.34.0/dist/Dropbox-sdk.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
     <script src="./sync-config.js"></script>
     <script src="./app.js"></script>
   </body>

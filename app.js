@@ -8,9 +8,10 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.11.3";
+const APP_VERSION = "v7.11.4";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
+const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
 const LINKED_WEIGHT_OVERRIDE_STORAGE_KEY = "performance-calculators-linked-weight-overrides-v1";
 const THEME_STORAGE_KEY = "performance-calculators-theme-v1";
@@ -4749,17 +4750,39 @@ function installCollapsiblePanels() {
     collapseState[panelId] = open;
   };
 
+  const moduleStack = document.querySelector("#module-stack");
   Array.from(document.querySelectorAll("section.panel")).forEach((panel, index) => {
     const heading = panel.querySelector(":scope > h2");
     if (!heading) return;
-    if (heading.querySelector(".panel-toggle")) return;
+    const actionsEl =
+      heading.querySelector(".panel-header-actions") ||
+      (() => {
+        const el = document.createElement("span");
+        el.className = "panel-header-actions";
+        heading.appendChild(el);
+        return el;
+      })();
 
     const panelId = panel.id || heading.id || `module-${index + 1}`;
     const isOpen = panelId in collapseState ? !!collapseState[panelId] : true;
 
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "panel-toggle";
+    if (moduleStack && panel.parentElement === moduleStack && !actionsEl.querySelector(".panel-drag-handle")) {
+      const dragHandle = document.createElement("button");
+      dragHandle.type = "button";
+      dragHandle.className = "panel-drag-handle";
+      dragHandle.setAttribute("aria-label", "Reorder module");
+      dragHandle.setAttribute("title", "Drag to reorder");
+      dragHandle.textContent = "⋮⋮";
+      actionsEl.appendChild(dragHandle);
+    }
+
+    let toggle = actionsEl.querySelector(".panel-toggle");
+    if (!toggle) {
+      toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "panel-toggle";
+      actionsEl.appendChild(toggle);
+    }
 
     updatePanelState(panel, toggle, panelId, isOpen);
     toggle.addEventListener("click", () => {
@@ -4770,6 +4793,88 @@ function installCollapsiblePanels() {
 
     heading.appendChild(toggle);
   });
+}
+
+function installModuleReordering() {
+  const moduleStack = document.querySelector("#module-stack");
+  const resetBtn = document.querySelector("#reset-module-order");
+  const statusEl = document.querySelector("#module-order-status");
+  if (!moduleStack) return;
+
+  const setStatus = (message = "", tone = "") => {
+    if (!statusEl) return;
+    statusEl.textContent = message;
+    if (tone) statusEl.dataset.tone = tone;
+    else delete statusEl.dataset.tone;
+  };
+
+  const getPanels = () => Array.from(moduleStack.querySelectorAll(":scope > section.panel"));
+  const getPanelOrderKey = (panel, index) =>
+    panel.dataset.panelOrderId || panel.id || panel.querySelector(":scope > h2")?.id || `module-${index + 1}`;
+
+  const panels = getPanels();
+  if (!panels.length) return;
+  panels.forEach((panel, index) => {
+    panel.dataset.panelOrderId = getPanelOrderKey(panel, index);
+  });
+
+  const defaultOrder = getPanels().map((panel) => panel.dataset.panelOrderId);
+
+  const persistOrder = () => {
+    try {
+      const order = getPanels().map((panel) => panel.dataset.panelOrderId);
+      localStorage.setItem(MODULE_ORDER_STORAGE_KEY, JSON.stringify(order));
+    } catch {
+      // Ignore storage failures.
+    }
+  };
+
+  const applyOrder = (order) => {
+    const panelMap = new Map(getPanels().map((panel) => [panel.dataset.panelOrderId, panel]));
+    order.forEach((panelId) => {
+      const panel = panelMap.get(panelId);
+      if (!panel) return;
+      moduleStack.appendChild(panel);
+      panelMap.delete(panelId);
+    });
+    panelMap.forEach((panel) => moduleStack.appendChild(panel));
+  };
+
+  try {
+    const raw = localStorage.getItem(MODULE_ORDER_STORAGE_KEY);
+    if (raw) {
+      const savedOrder = JSON.parse(raw);
+      if (Array.isArray(savedOrder) && savedOrder.length) {
+        applyOrder(savedOrder);
+      }
+    }
+  } catch {
+    // Ignore bad persisted order.
+  }
+
+  if (typeof window.Sortable === "function") {
+    window.Sortable.create(moduleStack, {
+      animation: 160,
+      handle: ".panel-drag-handle",
+      draggable: "section.panel",
+      forceFallback: true,
+      fallbackOnBody: true,
+      onEnd: () => {
+        persistOrder();
+        setStatus("Module order saved on this device.", "success");
+      },
+    });
+  } else {
+    setStatus("Drag reorder unavailable: Sortable library did not load.", "error");
+  }
+
+  if (resetBtn) {
+    resetBtn.addEventListener("click", () => {
+      applyOrder(defaultOrder);
+      persistOrder();
+      setStatus("Module order reset to default.", "success");
+    });
+  }
 }
 
 function bindTripFuel() {
@@ -7346,6 +7451,7 @@ applyTheme();
 setAppVersionLabel();
 setAltFlRangeLabels();
 installCollapsiblePanels();
+installModuleReordering();
 restorePersistedInputState();
 installInputStatePersistence();
 installClickToClearInputs();
