@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.11.1</p>
+        <p class="app-version" id="app-version">Version v7.11.2</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -717,6 +717,36 @@
           </label>
         </form>
         <div id="cog-limit-out" class="results"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="takeoff-crosswind-heading">
+        <h2 id="takeoff-crosswind-heading">Takeoff Crosswind Limit</h2>
+        <p class="module-note">Dispatch takeoff crosswind guideline with interpolation for intermediate takeoff weights and CG positions.</p>
+        <p class="module-note module-limits">Table weights use 122 t, 159 t, and 195 t. Aft CG limit is interpolated from the existing CoG data.</p>
+        <form id="takeoff-crosswind-form" class="grid">
+          <label>
+            Takeoff Weight (t)
+            <input type="number" step="0.1" id="tcw-weight" value="180" />
+          </label>
+          <label>
+            Takeoff CoG (%MAC)
+            <input type="number" step="0.1" id="tcw-cg" value="25" />
+          </label>
+          <label>
+            Runway Condition Code
+            <select id="tcw-rcc">
+              <option value="6">6 Dry</option>
+              <option value="5-wet">5 Wet</option>
+              <option value="5-good">5 Good</option>
+              <option value="4">4 Good to Medium</option>
+              <option value="3">3 Medium</option>
+              <option value="2">2 Medium to Poor</option>
+              <option value="1">1 Poor</option>
+              <option value="0">0 Nil</option>
+            </select>
+          </label>
+        </form>
+        <div id="takeoff-crosswind-out" class="results"></div>
       </section>
     </main>
 

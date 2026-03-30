@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.11.1";
+const APP_VERSION = "v7.11.2";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -66,6 +66,73 @@ const GO_AROUND_ANTI_ICE_ADJUSTMENT = {
 };
 const COG_LIMIT_WEIGHT_AXIS_1000KG = [108, 120, 140, 160, 180, 200, 220, 240];
 const COG_LIMIT_VALUES_PCT_MAC = [23.1, 24.7, 27.4, 29.8, 32.1, 34.4, 36.8, 37.5];
+const TAKEOFF_CROSSWIND_WEIGHT_AXIS_T = [122, 159, 195];
+const TAKEOFF_CROSSWIND_DATA = {
+  6: {
+    code: "6",
+    action: "Dry",
+    xwind20Kt: [40, 40, 40],
+    xwind25Kt: [37, 40, 40],
+    xwind30Kt: [30, 37, 40],
+    xwindAftKt: [28, 24, 28],
+  },
+  "5-wet": {
+    code: "5",
+    action: "Wet",
+    xwind20Kt: [37, 40, 40],
+    xwind25Kt: [31, 37, 40],
+    xwind30Kt: [26, 30, 35],
+    xwindAftKt: [25, 20, 23],
+  },
+  "5-good": {
+    code: "5",
+    action: "Good",
+    xwind20Kt: [37, 40, 40],
+    xwind25Kt: [31, 37, 40],
+    xwind30Kt: [26, 30, 35],
+    xwindAftKt: [25, 20, 23],
+  },
+  4: {
+    code: "4",
+    action: "Good to Medium",
+    xwind20Kt: [28, 32, 35],
+    xwind25Kt: [25, 27, 31],
+    xwind30Kt: [21, 22, 25],
+    xwindAftKt: [20, 15, 17],
+  },
+  3: {
+    code: "3",
+    action: "Medium",
+    xwind20Kt: [22, 24, 25],
+    xwind25Kt: [18, 20, 22],
+    xwind30Kt: [16, 18, 20],
+    xwindAftKt: [16, 12, 13],
+  },
+  2: {
+    code: "2",
+    action: "Medium to Poor",
+    xwind20Kt: [15, 15, 15],
+    xwind25Kt: [15, 15, 15],
+    xwind30Kt: [15, 15, 15],
+    xwindAftKt: [12, 10, 10],
+  },
+  1: {
+    code: "1",
+    action: "Poor",
+    xwind20Kt: [10, 10, 10],
+    xwind25Kt: [10, 10, 10],
+    xwind30Kt: [10, 10, 10],
+    xwindAftKt: [10, 10, 10],
+  },
+  0: {
+    code: "0",
+    action: "Nil",
+    xwind20Kt: [NaN, NaN, NaN],
+    xwind25Kt: [NaN, NaN, NaN],
+    xwind30Kt: [NaN, NaN, NaN],
+    xwindAftKt: [NaN, NaN, NaN],
+  },
+};
 let linkedWeightOverrides = readLinkedWeightOverrides();
 
 function parseNum(value) {
@@ -3684,6 +3751,7 @@ function renderRows(target, rows) {
     "DPA Total",
     "Total Fuel Required",
     "Required Weight",
+    "Crosswind Limit",
     "Option D Cruise / Initial Descent Mach",
     "Option D Descent IAS (>10000 / <=10000)",
   ]);
@@ -3749,6 +3817,7 @@ function recalculateAllForms() {
     "#lose-time-form",
     "#conversion-form",
     "#cog-limit-form",
+    "#takeoff-crosswind-form",
   ].forEach((selector) => {
     const form = document.querySelector(selector);
     if (form) form.dispatchEvent(new Event("submit"));
@@ -6611,6 +6680,71 @@ function calculateCogLimit(grossWeight1000Kg) {
   };
 }
 
+function calculateTakeoffCrosswindLimit(takeoffWeightT, takeoffCgPctMac, rccKey) {
+  if (!Number.isFinite(takeoffWeightT) || takeoffWeightT <= 0) {
+    throw new Error("Takeoff weight must be > 0");
+  }
+  if (!Number.isFinite(takeoffCgPctMac)) {
+    throw new Error("Takeoff CoG is invalid");
+  }
+
+  const rccEntry = TAKEOFF_CROSSWIND_DATA[rccKey];
+  if (!rccEntry) {
+    throw new Error("Runway Condition Code is invalid");
+  }
+
+  const aftLimit = calculateCogLimit(takeoffWeightT);
+  const warnings = [...aftLimit.warnings.map((warning) => `Aft CG lookup: ${warning}`)];
+
+  const minWeightT = TAKEOFF_CROSSWIND_WEIGHT_AXIS_T[0];
+  const maxWeightT = TAKEOFF_CROSSWIND_WEIGHT_AXIS_T[TAKEOFF_CROSSWIND_WEIGHT_AXIS_T.length - 1];
+  const usedWeightT = clamp(takeoffWeightT, minWeightT, maxWeightT);
+  if (usedWeightT !== takeoffWeightT) {
+    warnings.push(`Crosswind table weight clamped to ${format(usedWeightT, 1)} t`);
+  }
+
+  const aftLimitPctMac = aftLimit.cgLimitPctMac;
+  let usedCgPctMac = takeoffCgPctMac;
+  if (usedCgPctMac > aftLimitPctMac) {
+    warnings.push(`Takeoff CoG exceeds aft limit and was clamped to ${format(aftLimitPctMac, 1)} %MAC`);
+    usedCgPctMac = aftLimitPctMac;
+  }
+
+  const xwind20Kt = linear(TAKEOFF_CROSSWIND_WEIGHT_AXIS_T, rccEntry.xwind20Kt, usedWeightT);
+  const xwind25Kt = linear(TAKEOFF_CROSSWIND_WEIGHT_AXIS_T, rccEntry.xwind25Kt, usedWeightT);
+  const xwind30Kt = linear(TAKEOFF_CROSSWIND_WEIGHT_AXIS_T, rccEntry.xwind30Kt, usedWeightT);
+  const xwindAftKt = linear(TAKEOFF_CROSSWIND_WEIGHT_AXIS_T, rccEntry.xwindAftKt, usedWeightT);
+
+  let crosswindLimitKt;
+  if (!Number.isFinite(xwind20Kt)) {
+    crosswindLimitKt = NaN;
+  } else if (usedCgPctMac <= 20) {
+    crosswindLimitKt = xwind20Kt;
+  } else if (usedCgPctMac <= 25) {
+    crosswindLimitKt = linear([20, 25], [xwind20Kt, xwind25Kt], usedCgPctMac);
+  } else if (usedCgPctMac <= 30 || aftLimitPctMac <= 30) {
+    crosswindLimitKt = linear([25, 30], [xwind25Kt, xwind30Kt], clamp(usedCgPctMac, 25, 30));
+  } else {
+    crosswindLimitKt = linear([30, aftLimitPctMac], [xwind30Kt, xwindAftKt], clamp(usedCgPctMac, 30, aftLimitPctMac));
+  }
+
+  return {
+    rccCode: rccEntry.code,
+    brakingAction: rccEntry.action,
+    requestedWeightT: takeoffWeightT,
+    usedWeightT,
+    requestedCgPctMac: takeoffCgPctMac,
+    usedCgPctMac,
+    aftLimitPctMac,
+    crosswindLimitKt,
+    xwind20Kt,
+    xwind25Kt,
+    xwind30Kt,
+    xwindAftKt,
+    warnings,
+  };
+}
+
 function bindCogLimit() {
   const form = document.querySelector("#cog-limit-form");
   const out = document.querySelector("#cog-limit-out");
@@ -6638,6 +6772,60 @@ function bindCogLimit() {
         ...(result.warnings.length ? [["__warning__", `Input warning: ${result.warnings.join(" | ")}`]] : []),
         ["CG Limit", `${format(result.cgLimitPctMac, 1)} %MAC`],
       ];
+      renderRows(out, rows);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  autoRecalculate();
+}
+
+function bindTakeoffCrosswindLimit() {
+  const form = document.querySelector("#takeoff-crosswind-form");
+  const out = document.querySelector("#takeoff-crosswind-out");
+  const weightEl = document.querySelector("#tcw-weight");
+  const cgEl = document.querySelector("#tcw-cg");
+  const rccEl = document.querySelector("#tcw-rcc");
+  if (!form || !out || !weightEl || !cgEl || !rccEl) return;
+
+  const autoRecalculate = (sourceEl = null) => {
+    if (shouldDeferLiveSubmitForInput(sourceEl)) return;
+    form.dispatchEvent(new Event("submit"));
+  };
+
+  bindCommittedInput(weightEl, autoRecalculate);
+  bindCommittedInput(cgEl, autoRecalculate);
+  rccEl.addEventListener("change", () => autoRecalculate(rccEl));
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (
+      missingFieldsBanner(out, [
+        fieldIsBlank(weightEl.value) ? "Takeoff Weight" : "",
+        fieldIsBlank(cgEl.value) ? "Takeoff CoG" : "",
+      ])
+    ) {
+      return;
+    }
+
+    try {
+      const takeoffWeightT = parseNum(weightEl.value);
+      const takeoffCgPctMac = parseNum(cgEl.value);
+      const result = calculateTakeoffCrosswindLimit(takeoffWeightT, takeoffCgPctMac, rccEl.value);
+
+      weightEl.value = formatInputNumber(result.usedWeightT, 1);
+      cgEl.value = formatInputNumber(result.usedCgPctMac, 1);
+
+      const rows = [
+        ...(result.warnings.length ? [["__warning__", `Input warning: ${result.warnings.join(" | ")}`]] : []),
+        ["Runway Condition Code / Braking Action", `${result.rccCode} / ${result.brakingAction}`],
+        ["Takeoff Aft CG Limit", `${format(result.aftLimitPctMac, 1)} %MAC`],
+        ...(Number.isFinite(result.crosswindLimitKt)
+          ? [["Crosswind Limit", `${format(result.crosswindLimitKt, 1)} kt`]]
+          : [["Crosswind Limit", "Nil"]]),
+      ];
+
       renderRows(out, rows);
     } catch (error) {
       renderError(out, error.message);
@@ -7201,6 +7389,7 @@ bindLoseTime();
 bindFixTimeAtFix();
 bindConversion();
 bindCogLimit();
+bindTakeoffCrosswindLimit();
 bindGlobalSettings();
 bindThemeAutoUpdates();
 bindNamedScenarios();
