@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.11.2</p>
+        <p class="app-version" id="app-version">Version v7.11.3</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -706,23 +706,10 @@
         <div id="conversion-out" class="results"></div>
       </section>
 
-      <section class="panel" aria-labelledby="cog-limit-heading">
-        <h2 id="cog-limit-heading">CoG Limit</h2>
-        <p class="module-note">787-9 gross weight to CG limit lookup</p>
-        <p class="module-note module-limits">Limits: Gross Weight 108-240+ (1000 kg)</p>
-        <form id="cog-limit-form" class="grid">
-          <label>
-            Gross Weight (1000 kg)
-            <input type="number" step="0.1" id="cog-weight" value="180" />
-          </label>
-        </form>
-        <div id="cog-limit-out" class="results"></div>
-      </section>
-
       <section class="panel" aria-labelledby="takeoff-crosswind-heading">
-        <h2 id="takeoff-crosswind-heading">Takeoff Crosswind Limit</h2>
-        <p class="module-note">Dispatch takeoff crosswind guideline with interpolation for intermediate takeoff weights and CG positions.</p>
-        <p class="module-note module-limits">Table weights use 122 t, 159 t, and 195 t. Aft CG limit is interpolated from the existing CoG data.</p>
+        <h2 id="takeoff-crosswind-heading">Takeoff CoG / Crosswind Limit</h2>
+        <p class="module-note">Takeoff aft CG limit lookup with dispatch crosswind guideline interpolation for intermediate takeoff weights and CG positions.</p>
+        <p class="module-note module-limits">Table weights use 122 t, 159 t, and 195 t and above. Enter takeoff CoG only when you want the crosswind limit.</p>
         <form id="takeoff-crosswind-form" class="grid">
           <label>
             Takeoff Weight (t)
@@ -730,7 +717,7 @@
           </label>
           <label>
             Takeoff CoG (%MAC)
-            <input type="number" step="0.1" id="tcw-cg" value="25" />
+            <input type="number" step="0.1" id="tcw-cg" value="" placeholder="Optional for crosswind" />
           </label>
           <label>
             Runway Condition Code

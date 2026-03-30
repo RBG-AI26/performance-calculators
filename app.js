@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.11.2";
+const APP_VERSION = "v7.11.3";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const SCENARIO_STORAGE_KEY = "performance-calculators-scenarios-v1";
@@ -17,7 +17,7 @@ const THEME_STORAGE_KEY = "performance-calculators-theme-v1";
 const SYNC_SESSION_STORAGE_KEY = "performance-calculators-sync-session-v2";
 const SYNC_AUTH_STORAGE_KEY = "performance-calculators-sync-auth-v1";
 const NON_PERSISTED_FIELD_IDS = new Set(["scenario-name", "scenario-select", "theme-mode"]);
-const LINKED_START_WEIGHT_FIELD_IDS = ["dpa-weight", "lrc-alt-weight", "eo-weight", "eo-div-weight", "cog-weight"];
+const LINKED_START_WEIGHT_FIELD_IDS = ["dpa-weight", "lrc-alt-weight", "eo-weight", "eo-div-weight", "tcw-weight"];
 const DEFAULT_THEME_MODE = "auto";
 const SYNC_STATUS_REFRESH_SKEW_MS = 60 * 1000;
 const SYNC_SCENARIO_FILE_TYPE = "performance-calculators-scenario";
@@ -67,6 +67,7 @@ const GO_AROUND_ANTI_ICE_ADJUSTMENT = {
 const COG_LIMIT_WEIGHT_AXIS_1000KG = [108, 120, 140, 160, 180, 200, 220, 240];
 const COG_LIMIT_VALUES_PCT_MAC = [23.1, 24.7, 27.4, 29.8, 32.1, 34.4, 36.8, 37.5];
 const TAKEOFF_CROSSWIND_WEIGHT_AXIS_T = [122, 159, 195];
+const TAKEOFF_MAX_WEIGHT_T = 254.692;
 const TAKEOFF_CROSSWIND_DATA = {
   6: {
     code: "6",
@@ -3816,7 +3817,6 @@ function recalculateAllForms() {
     "#holding-form",
     "#lose-time-form",
     "#conversion-form",
-    "#cog-limit-form",
     "#takeoff-crosswind-form",
   ].forEach((selector) => {
     const form = document.querySelector(selector);
@@ -6684,7 +6684,8 @@ function calculateTakeoffCrosswindLimit(takeoffWeightT, takeoffCgPctMac, rccKey)
   if (!Number.isFinite(takeoffWeightT) || takeoffWeightT <= 0) {
     throw new Error("Takeoff weight must be > 0");
   }
-  if (!Number.isFinite(takeoffCgPctMac)) {
+  const hasTakeoffCg = Number.isFinite(takeoffCgPctMac);
+  if (!hasTakeoffCg && !Number.isNaN(takeoffCgPctMac)) {
     throw new Error("Takeoff CoG is invalid");
   }
 
@@ -6697,15 +6698,16 @@ function calculateTakeoffCrosswindLimit(takeoffWeightT, takeoffCgPctMac, rccKey)
   const warnings = [...aftLimit.warnings.map((warning) => `Aft CG lookup: ${warning}`)];
 
   const minWeightT = TAKEOFF_CROSSWIND_WEIGHT_AXIS_T[0];
-  const maxWeightT = TAKEOFF_CROSSWIND_WEIGHT_AXIS_T[TAKEOFF_CROSSWIND_WEIGHT_AXIS_T.length - 1];
-  const usedWeightT = clamp(takeoffWeightT, minWeightT, maxWeightT);
-  if (usedWeightT !== takeoffWeightT) {
-    warnings.push(`Crosswind table weight clamped to ${format(usedWeightT, 1)} t`);
+  const maxDispatchTableWeightT = TAKEOFF_CROSSWIND_WEIGHT_AXIS_T[TAKEOFF_CROSSWIND_WEIGHT_AXIS_T.length - 1];
+  const lookupWeightT = clamp(takeoffWeightT, minWeightT, TAKEOFF_MAX_WEIGHT_T);
+  if (lookupWeightT !== takeoffWeightT) {
+    warnings.push(`Takeoff weight clamped to ${format(lookupWeightT, 3)} t`);
   }
+  const usedWeightT = clamp(lookupWeightT, minWeightT, maxDispatchTableWeightT);
 
   const aftLimitPctMac = aftLimit.cgLimitPctMac;
-  let usedCgPctMac = takeoffCgPctMac;
-  if (usedCgPctMac > aftLimitPctMac) {
+  let usedCgPctMac = hasTakeoffCg ? takeoffCgPctMac : NaN;
+  if (hasTakeoffCg && usedCgPctMac > aftLimitPctMac) {
     warnings.push(`Takeoff CoG exceeds aft limit and was clamped to ${format(aftLimitPctMac, 1)} %MAC`);
     usedCgPctMac = aftLimitPctMac;
   }
@@ -6716,14 +6718,22 @@ function calculateTakeoffCrosswindLimit(takeoffWeightT, takeoffCgPctMac, rccKey)
   const xwindAftKt = linear(TAKEOFF_CROSSWIND_WEIGHT_AXIS_T, rccEntry.xwindAftKt, usedWeightT);
 
   let crosswindLimitKt;
-  if (!Number.isFinite(xwind20Kt)) {
+  if (!hasTakeoffCg) {
+    crosswindLimitKt = NaN;
+  } else if (!Number.isFinite(xwind20Kt)) {
     crosswindLimitKt = NaN;
   } else if (usedCgPctMac <= 20) {
     crosswindLimitKt = xwind20Kt;
   } else if (usedCgPctMac <= 25) {
     crosswindLimitKt = linear([20, 25], [xwind20Kt, xwind25Kt], usedCgPctMac);
-  } else if (usedCgPctMac <= 30 || aftLimitPctMac <= 30) {
+  } else if (aftLimitPctMac <= 30) {
+    // When the interpolated aft CG limit is below 30% MAC, continue to use
+    // the published 25/30 columns for CGs above 25% MAC rather than trying to
+    // interpolate to a moving aft-limit x-position.
+    warnings.push("Aft CG limit is below 30 %MAC; 25 %MAC and 30 %MAC crosswind columns used above 25 %MAC");
     crosswindLimitKt = linear([25, 30], [xwind25Kt, xwind30Kt], clamp(usedCgPctMac, 25, 30));
+  } else if (usedCgPctMac <= 30) {
+    crosswindLimitKt = linear([25, 30], [xwind25Kt, xwind30Kt], usedCgPctMac);
   } else {
     crosswindLimitKt = linear([30, aftLimitPctMac], [xwind30Kt, xwindAftKt], clamp(usedCgPctMac, 30, aftLimitPctMac));
   }
@@ -6735,6 +6745,7 @@ function calculateTakeoffCrosswindLimit(takeoffWeightT, takeoffCgPctMac, rccKey)
     usedWeightT,
     requestedCgPctMac: takeoffCgPctMac,
     usedCgPctMac,
+    hasTakeoffCg,
     aftLimitPctMac,
     crosswindLimitKt,
     xwind20Kt,
@@ -6743,42 +6754,6 @@ function calculateTakeoffCrosswindLimit(takeoffWeightT, takeoffCgPctMac, rccKey)
     xwindAftKt,
     warnings,
   };
-}
-
-function bindCogLimit() {
-  const form = document.querySelector("#cog-limit-form");
-  const out = document.querySelector("#cog-limit-out");
-  const weightEl = document.querySelector("#cog-weight");
-  if (!form || !out || !weightEl) return;
-
-  const autoRecalculate = (sourceEl = null) => {
-    if (shouldDeferLiveSubmitForInput(sourceEl)) return;
-    form.dispatchEvent(new Event("submit"));
-  };
-
-  bindCommittedInput(weightEl, autoRecalculate);
-
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (missingFieldsBanner(out, [fieldIsBlank(weightEl.value) ? "Gross Weight (1000 kg)" : ""])) {
-      return;
-    }
-    try {
-      const grossWeight1000Kg = parseNum(weightEl.value);
-      const result = calculateCogLimit(grossWeight1000Kg);
-      weightEl.value = formatInputNumber(result.usedWeight1000Kg, 1);
-
-      const rows = [
-        ...(result.warnings.length ? [["__warning__", `Input warning: ${result.warnings.join(" | ")}`]] : []),
-        ["CG Limit", `${format(result.cgLimitPctMac, 1)} %MAC`],
-      ];
-      renderRows(out, rows);
-    } catch (error) {
-      renderError(out, error.message);
-    }
-  });
-
-  autoRecalculate();
 }
 
 function bindTakeoffCrosswindLimit() {
@@ -6800,30 +6775,27 @@ function bindTakeoffCrosswindLimit() {
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (
-      missingFieldsBanner(out, [
-        fieldIsBlank(weightEl.value) ? "Takeoff Weight" : "",
-        fieldIsBlank(cgEl.value) ? "Takeoff CoG" : "",
-      ])
-    ) {
+    if (missingFieldsBanner(out, [fieldIsBlank(weightEl.value) ? "Takeoff Weight" : ""])) {
       return;
     }
 
     try {
       const takeoffWeightT = parseNum(weightEl.value);
-      const takeoffCgPctMac = parseNum(cgEl.value);
+      const takeoffCgPctMac = fieldIsBlank(cgEl.value) ? NaN : parseNum(cgEl.value);
       const result = calculateTakeoffCrosswindLimit(takeoffWeightT, takeoffCgPctMac, rccEl.value);
 
       weightEl.value = formatInputNumber(result.usedWeightT, 1);
-      cgEl.value = formatInputNumber(result.usedCgPctMac, 1);
+      if (Number.isFinite(result.usedCgPctMac)) {
+        cgEl.value = formatInputNumber(result.usedCgPctMac, 1);
+      }
 
       const rows = [
         ...(result.warnings.length ? [["__warning__", `Input warning: ${result.warnings.join(" | ")}`]] : []),
-        ["Runway Condition Code / Braking Action", `${result.rccCode} / ${result.brakingAction}`],
         ["Takeoff Aft CG Limit", `${format(result.aftLimitPctMac, 1)} %MAC`],
+        ...(result.hasTakeoffCg ? [["Runway Condition Code / Braking Action", `${result.rccCode} / ${result.brakingAction}`]] : []),
         ...(Number.isFinite(result.crosswindLimitKt)
           ? [["Crosswind Limit", `${format(result.crosswindLimitKt, 1)} kt`]]
-          : [["Crosswind Limit", "Nil"]]),
+          : []),
       ];
 
       renderRows(out, rows);
@@ -7388,7 +7360,6 @@ bindHolding();
 bindLoseTime();
 bindFixTimeAtFix();
 bindConversion();
-bindCogLimit();
 bindTakeoffCrosswindLimit();
 bindGlobalSettings();
 bindThemeAutoUpdates();
