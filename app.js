@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.11.4";
+const APP_VERSION = "v7.11.5";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
@@ -61,6 +61,9 @@ const LOSE_TIME_MIN_OPTION_D_MACH = 0.4;
 const LOSE_TIME_OPTION_D_REFERENCE_DESCENT_IAS_KT = 310;
 const LOSE_TIME_MIN_OPTION_D_DESCENT_IAS_KT = 140;
 const LOSE_TIME_MAX_OPTION_D_DESCENT_IAS_KT = 400;
+const FIX_TIME_MIN_DESCENT_IAS_KT = 230;
+const FIX_TIME_MAX_DESCENT_IAS_KT = 340;
+const FIX_TIME_MAX_MACH = 0.88;
 const GO_AROUND_ANTI_ICE_ADJUSTMENT = {
   engineOn: { oatLe8: -0.1, oatGt8Le20: -0.2 },
   engineWingOn: { oatLe8: -0.1, oatGt8Le20: -0.2 },
@@ -2933,6 +2936,10 @@ function simulateCruiseDescentTimeToFix({
   };
 }
 
+function getMachEquivalentForIasAtAltitude(altitudeFt, iasKt, isaDeviationC = 0) {
+  return getTasAtAltitudeForIas(altitudeFt, iasKt, isaDeviationC).mach;
+}
+
 function buildLoseTimeCruiseDescentOption({
   distanceNm,
   startWeightT,
@@ -3217,97 +3224,85 @@ function buildCruiseDescentTimeAtFixSolution({
   startFl,
   cruiseWindKt,
   distanceToTodNm,
-  fixedCruiseMach = null,
-  fixedDescentIasKt = null,
-  speedInputMode = "mach",
-  targetTimeMin,
-  currentCruiseMach = null,
-  currentDescentIasKt = null,
+  plannedCruiseMach,
+  plannedDescentIasKt,
+  requiredChangeMin,
   isaDeviationC = 0,
   temperatureC = null,
 }) {
-  if (!Number.isFinite(targetTimeMin) || targetTimeMin < 0) {
-    throw new Error("Required time at fix is invalid");
+  if (!Number.isFinite(requiredChangeMin)) {
+    throw new Error("Required time change is invalid");
+  }
+  if (!Number.isFinite(plannedCruiseMach) || plannedCruiseMach <= 0 || plannedCruiseMach >= 1) {
+    throw new Error("Planned cruise / initial descent Mach must be > 0 and < 1.0");
+  }
+  if (!Number.isFinite(plannedDescentIasKt) || plannedDescentIasKt <= 0) {
+    throw new Error("Planned descent IAS must be > 0");
   }
 
-  const baselineCruiseMach =
-    Number.isFinite(currentCruiseMach) && currentCruiseMach > 0 && currentCruiseMach < 1
-      ? currentCruiseMach
-      : LOSE_TIME_OPTION_D_REFERENCE_MACH;
-  const baselineDescentIasKt =
-    Number.isFinite(currentDescentIasKt) && currentDescentIasKt > 0
-      ? currentDescentIasKt
-      : LOSE_TIME_OPTION_D_REFERENCE_DESCENT_IAS_KT;
+  const startAltitudeFt = startFl * 100;
+  const minimumMach = getMachEquivalentForIasAtAltitude(
+    startAltitudeFt,
+    FIX_TIME_MIN_DESCENT_IAS_KT,
+    isaDeviationC,
+  );
+  const maximumMach = FIX_TIME_MAX_MACH;
   const baseline = simulateCruiseDescentTimeToFix({
     distanceNm,
     startFl,
     cruiseWindKt,
     distanceToTodNm,
-    descentIasKt: baselineDescentIasKt,
-    cruiseMach: baselineCruiseMach,
+    descentIasKt: plannedDescentIasKt,
+    cruiseMach: plannedCruiseMach,
+    isaDeviationC,
+  });
+  const targetTimeMin = baseline.totalTimeMin + requiredChangeMin;
+  if (targetTimeMin <= 0) {
+    throw new Error("Required time at fix is invalid");
+  }
+
+  if (Math.abs(requiredChangeMin) <= 1e-9) {
+    return {
+      baseline,
+      solution: baseline,
+      targetTimeMin,
+      solvedMach: plannedCruiseMach,
+      solvedDescentIasKt: plannedDescentIasKt,
+      usedMachAdjustment: false,
+      constrained: false,
+      limitedByFastest: false,
+      limitedBySlowest: false,
+      minimumMach,
+      maximumMach,
+      isaDeviationC,
+      temperatureC,
+    };
+  }
+
+  const minimumIasSolution = simulateCruiseDescentTimeToFix({
+    distanceNm,
+    startFl,
+    cruiseWindKt,
+    distanceToTodNm,
+    descentIasKt: FIX_TIME_MIN_DESCENT_IAS_KT,
+    cruiseMach: plannedCruiseMach,
+    isaDeviationC,
+  });
+  const maximumIasSolution = simulateCruiseDescentTimeToFix({
+    distanceNm,
+    startFl,
+    cruiseWindKt,
+    distanceToTodNm,
+    descentIasKt: FIX_TIME_MAX_DESCENT_IAS_KT,
+    cruiseMach: plannedCruiseMach,
     isaDeviationC,
   });
 
-  if (speedInputMode === "mach") {
-    if (!Number.isFinite(fixedCruiseMach) || fixedCruiseMach <= 0 || fixedCruiseMach >= 1) {
-      throw new Error("Cruise / initial descent Mach must be > 0 and < 1.0");
-    }
-
-    const maximumIasSolution = simulateCruiseDescentTimeToFix({
-      distanceNm,
-      startFl,
-      cruiseWindKt,
-      distanceToTodNm,
-      descentIasKt: LOSE_TIME_MAX_OPTION_D_DESCENT_IAS_KT,
-      cruiseMach: fixedCruiseMach,
-      isaDeviationC,
-    });
-    const minimumIasSolution = simulateCruiseDescentTimeToFix({
-      distanceNm,
-      startFl,
-      cruiseWindKt,
-      distanceToTodNm,
-      descentIasKt: LOSE_TIME_MIN_OPTION_D_DESCENT_IAS_KT,
-      cruiseMach: fixedCruiseMach,
-      isaDeviationC,
-    });
-
-    if (maximumIasSolution.totalTimeMin > targetTimeMin) {
-      return {
-        inputMode: "mach",
-        baseline,
-        solution: maximumIasSolution,
-        targetTimeMin,
-        requiredMach: fixedCruiseMach,
-        requiredDescentIasKt: maximumIasSolution.descentIasAbove10kKt,
-        limitedByMaxIas: true,
-        limitedByMinIas: false,
-        limitedByMaxMach: false,
-        limitedByMinMach: false,
-        isaDeviationC,
-        temperatureC,
-      };
-    }
-
-    if (minimumIasSolution.totalTimeMin < targetTimeMin) {
-      return {
-        inputMode: "mach",
-        baseline,
-        solution: minimumIasSolution,
-        targetTimeMin,
-        requiredMach: fixedCruiseMach,
-        requiredDescentIasKt: minimumIasSolution.descentIasAbove10kKt,
-        limitedByMaxIas: false,
-        limitedByMinIas: true,
-        limitedByMaxMach: false,
-        limitedByMinMach: false,
-        isaDeviationC,
-        temperatureC,
-      };
-    }
-
-    let lowIas = LOSE_TIME_MIN_OPTION_D_DESCENT_IAS_KT;
-    let highIas = LOSE_TIME_MAX_OPTION_D_DESCENT_IAS_KT;
+  const slowestIasTimeMin = minimumIasSolution.totalTimeMin;
+  const fastestIasTimeMin = maximumIasSolution.totalTimeMin;
+  if (targetTimeMin <= slowestIasTimeMin + 1e-9 && targetTimeMin >= fastestIasTimeMin - 1e-9) {
+    let lowIas = FIX_TIME_MIN_DESCENT_IAS_KT;
+    let highIas = FIX_TIME_MAX_DESCENT_IAS_KT;
     let lowSolution = minimumIasSolution;
     let highSolution = maximumIasSolution;
 
@@ -3319,7 +3314,7 @@ function buildCruiseDescentTimeAtFixSolution({
         cruiseWindKt,
         distanceToTodNm,
         descentIasKt: midIas,
-        cruiseMach: fixedCruiseMach,
+        cruiseMach: plannedCruiseMach,
         isaDeviationC,
       });
       if (midSolution.totalTimeMin > targetTimeMin) {
@@ -3332,80 +3327,83 @@ function buildCruiseDescentTimeAtFixSolution({
     }
 
     const solution =
-      Math.abs(lowSolution.totalTimeMin - targetTimeMin) <= Math.abs(highSolution.totalTimeMin - targetTimeMin)
+      Math.abs(lowSolution.totalTimeMin - targetTimeMin) <=
+      Math.abs(highSolution.totalTimeMin - targetTimeMin)
         ? lowSolution
         : highSolution;
 
     return {
-      inputMode: "mach",
       baseline,
       solution,
       targetTimeMin,
-      requiredMach: fixedCruiseMach,
-      requiredDescentIasKt: solution.descentIasAbove10kKt,
-      limitedByMaxIas: false,
-      limitedByMinIas: false,
-      limitedByMaxMach: false,
-      limitedByMinMach: false,
+      solvedMach: plannedCruiseMach,
+      solvedDescentIasKt: solution.descentIasAbove10kKt,
+      usedMachAdjustment: false,
+      constrained: false,
+      limitedByFastest: false,
+      limitedBySlowest: false,
+      minimumMach,
+      maximumMach,
       isaDeviationC,
       temperatureC,
     };
   }
 
-  if (!Number.isFinite(fixedDescentIasKt) || fixedDescentIasKt <= 0) {
-    throw new Error("Descent IAS must be > 0");
-  }
-
-  const minimumMach = LOSE_TIME_MIN_OPTION_D_MACH;
-  const maximumMach = LOSE_TIME_MAX_OPTION_D_MACH;
-  const minimumMachSolution = simulateCruiseDescentTimeToFix({
+  const requiredIasBoundKt =
+    targetTimeMin > slowestIasTimeMin ? FIX_TIME_MIN_DESCENT_IAS_KT : FIX_TIME_MAX_DESCENT_IAS_KT;
+  const boundarySolution = targetTimeMin > slowestIasTimeMin ? minimumIasSolution : maximumIasSolution;
+  const slowestMachSolution = simulateCruiseDescentTimeToFix({
     distanceNm,
     startFl,
     cruiseWindKt,
     distanceToTodNm,
-    descentIasKt: fixedDescentIasKt,
+    descentIasKt: requiredIasBoundKt,
     cruiseMach: minimumMach,
     isaDeviationC,
   });
-  const maximumMachSolution = simulateCruiseDescentTimeToFix({
+  const fastestMachSolution = simulateCruiseDescentTimeToFix({
     distanceNm,
     startFl,
     cruiseWindKt,
     distanceToTodNm,
-    descentIasKt: fixedDescentIasKt,
+    descentIasKt: requiredIasBoundKt,
     cruiseMach: maximumMach,
     isaDeviationC,
   });
 
-  if (maximumMachSolution.totalTimeMin > targetTimeMin) {
+  if (targetTimeMin > slowestMachSolution.totalTimeMin) {
     return {
-      inputMode: "ias",
       baseline,
-      solution: maximumMachSolution,
+      solution: slowestMachSolution,
       targetTimeMin,
-      requiredMach: maximumMach,
-      requiredDescentIasKt: fixedDescentIasKt,
-      limitedByMaxMach: true,
-      limitedByMinMach: false,
-      limitedByMinIas: false,
-      limitedByMaxIas: false,
+      solvedMach: minimumMach,
+      solvedDescentIasKt: requiredIasBoundKt,
+      usedMachAdjustment: true,
+      constrained: true,
+      limitedByFastest: false,
+      limitedBySlowest: true,
+      boundarySolution,
+      minimumMach,
+      maximumMach,
       isaDeviationC,
       temperatureC,
     };
   }
 
-  if (minimumMachSolution.totalTimeMin < targetTimeMin) {
+  if (targetTimeMin < fastestMachSolution.totalTimeMin) {
     return {
-      inputMode: "ias",
       baseline,
-      solution: minimumMachSolution,
+      solution: fastestMachSolution,
       targetTimeMin,
-      requiredMach: minimumMach,
-      requiredDescentIasKt: fixedDescentIasKt,
-      limitedByMaxMach: false,
-      limitedByMinMach: true,
-      limitedByMinIas: false,
-      limitedByMaxIas: false,
+      solvedMach: maximumMach,
+      solvedDescentIasKt: requiredIasBoundKt,
+      usedMachAdjustment: true,
+      constrained: true,
+      limitedByFastest: true,
+      limitedBySlowest: false,
+      boundarySolution,
+      minimumMach,
+      maximumMach,
       isaDeviationC,
       temperatureC,
     };
@@ -3413,8 +3411,8 @@ function buildCruiseDescentTimeAtFixSolution({
 
   let lowMach = minimumMach;
   let highMach = maximumMach;
-  let lowSolution = minimumMachSolution;
-  let highSolution = maximumMachSolution;
+  let lowSolution = slowestMachSolution;
+  let highSolution = fastestMachSolution;
 
   for (let i = 0; i < 32; i += 1) {
     const midMach = (lowMach + highMach) / 2;
@@ -3423,7 +3421,7 @@ function buildCruiseDescentTimeAtFixSolution({
       startFl,
       cruiseWindKt,
       distanceToTodNm,
-      descentIasKt: fixedDescentIasKt,
+      descentIasKt: requiredIasBoundKt,
       cruiseMach: midMach,
       isaDeviationC,
     });
@@ -3437,21 +3435,24 @@ function buildCruiseDescentTimeAtFixSolution({
   }
 
   const solution =
-    Math.abs(lowSolution.totalTimeMin - targetTimeMin) <= Math.abs(highSolution.totalTimeMin - targetTimeMin)
+    Math.abs(lowSolution.totalTimeMin - targetTimeMin) <=
+    Math.abs(highSolution.totalTimeMin - targetTimeMin)
       ? lowSolution
       : highSolution;
 
   return {
-    inputMode: "ias",
     baseline,
     solution,
     targetTimeMin,
-    requiredMach: solution.cruiseMach,
-    requiredDescentIasKt: fixedDescentIasKt,
-    limitedByMaxMach: false,
-    limitedByMinMach: false,
-    limitedByMinIas: false,
-    limitedByMaxIas: false,
+    solvedMach: solution.cruiseMach,
+    solvedDescentIasKt: requiredIasBoundKt,
+    usedMachAdjustment: true,
+    constrained: false,
+    limitedByFastest: false,
+    limitedBySlowest: false,
+    boundarySolution,
+    minimumMach,
+    maximumMach,
     isaDeviationC,
     temperatureC,
   };
@@ -6324,7 +6325,6 @@ function bindFixTimeAtFix() {
   }
 
   let suppressAutoSubmit = false;
-  let lastSpeedSource = "mach";
   let lastTempSource = "isa-dev";
 
   const autoRecalculate = (sourceEl = null) => {
@@ -6332,26 +6332,14 @@ function bindFixTimeAtFix() {
     form.dispatchEvent(new Event("submit"));
   };
 
-  function setActiveSpeedSource(source) {
-    lastSpeedSource = source;
-    machEl.classList.toggle("input-derived", source !== "mach");
-    iasEl.classList.toggle("input-derived", source !== "ias");
-  }
-
   bindCommittedInput(distanceEl, autoRecalculate);
   bindCommittedInput(flEl, autoRecalculate);
   bindCommittedInput(windEl, autoRecalculate);
   bindCommittedInput(todDistanceEl, autoRecalculate);
   bindCommittedInput(currentEtaEl, autoRecalculate);
   bindCommittedInput(requiredUtcEl, autoRecalculate);
-  bindCommittedInput(machEl, autoRecalculate, {
-    onFocus: () => setActiveSpeedSource("mach"),
-    onInput: () => setActiveSpeedSource("mach"),
-  });
-  bindCommittedInput(iasEl, autoRecalculate, {
-    onFocus: () => setActiveSpeedSource("ias"),
-    onInput: () => setActiveSpeedSource("ias"),
-  });
+  bindCommittedInput(machEl, autoRecalculate);
+  bindCommittedInput(iasEl, autoRecalculate);
   bindCommittedInput(isaDevEl, autoRecalculate, {
     onInput: () => {
       lastTempSource = "isa-dev";
@@ -6372,8 +6360,8 @@ function bindFixTimeAtFix() {
         fieldIsBlank(todDistanceEl.value) ? "Distance to TOD" : "",
         fieldIsBlank(currentEtaEl.value) ? "Current FMC ETA at Fix (UTC)" : "",
         fieldIsBlank(requiredUtcEl.value) ? "Required Time at Fix (UTC)" : "",
-        lastSpeedSource === "mach" && fieldIsBlank(machEl.value) ? "Cruise / Initial Descent Mach" : "",
-        lastSpeedSource === "ias" && fieldIsBlank(iasEl.value) ? "Descent IAS" : "",
+        fieldIsBlank(machEl.value) ? "Planned Cruise / Initial Descent Mach" : "",
+        fieldIsBlank(iasEl.value) ? "Planned Descent IAS" : "",
       ])
     ) {
       return;
@@ -6415,39 +6403,32 @@ function bindFixTimeAtFix() {
       const currentEtaUtc = resolveUpcomingUtcTargetMinutes(nowUtc.totalMinutes, currentEtaClock.totalMinutes);
       const targetUtc = resolveUpcomingUtcTargetMinutes(nowUtc.totalMinutes, requiredClock.totalMinutes);
       const requiredChangeMin = targetUtc.targetDurationMin - currentEtaUtc.targetDurationMin;
-      const currentCruiseMach =
-        fieldIsBlank(machEl.value) ? NaN : parseLoseTimeOptionDSpeedInput(machEl.value).mach;
-      const currentDescentIasKt = parseNumOrDefault(iasEl.value, NaN);
+      const plannedCruiseMach = parseLoseTimeOptionDSpeedInput(machEl.value).mach;
+      const plannedDescentIasKt = parseNum(iasEl.value);
       const solution = buildCruiseDescentTimeAtFixSolution({
         distanceNm,
         startFl,
         cruiseWindKt: windKt,
         distanceToTodNm,
-        fixedCruiseMach: lastSpeedSource === "mach" ? parseLoseTimeOptionDSpeedInput(machEl.value).mach : null,
-        fixedDescentIasKt: lastSpeedSource === "ias" ? parseNum(iasEl.value) : null,
-        speedInputMode: lastSpeedSource,
-        targetTimeMin: targetUtc.targetDurationMin,
-        currentCruiseMach,
-        currentDescentIasKt,
+        plannedCruiseMach,
+        plannedDescentIasKt,
+        requiredChangeMin,
         isaDeviationC: temperaturePair.isaDeviationC,
         temperatureC: temperaturePair.temperatureC,
       });
 
-      machEl.value = formatInputNumber(solution.requiredMach, 3);
-      iasEl.value = formatInputNumber(solution.requiredDescentIasKt, 0);
-      setActiveSpeedSource(lastSpeedSource);
-
-      const solvedFixUtcMinutes = nowUtc.totalMinutes + solution.solution.totalTimeMin;
+      const solvedFixUtcMinutes =
+        currentEtaUtc.targetUtcMinutes +
+        (solution.solution.totalTimeMin - solution.baseline.totalTimeMin);
       const hasDescentSegment = solution.solution.descentDistanceNm > 0.001;
-      const constraintNote = solution.limitedByMaxIas
-        ? `No exact solution at the selected cruise Mach. Even at ${format(LOSE_TIME_MAX_OPTION_D_DESCENT_IAS_KT, 0)} kt descent IAS, the fix time is ${formatUtcClock(nowUtc.totalMinutes + solution.solution.totalTimeMin)}`
-        : solution.limitedByMinIas
-          ? `No exact solution at the selected cruise Mach. Even slowing to ${format(LOSE_TIME_MIN_OPTION_D_DESCENT_IAS_KT, 0)} kt descent IAS, the fix time is ${formatUtcClock(nowUtc.totalMinutes + solution.solution.totalTimeMin)}`
-          : solution.limitedByMaxMach
-            ? `No exact solution at the selected descent IAS. Even at Mach ${format(LOSE_TIME_MAX_OPTION_D_MACH, 3)}, the fix time is ${formatUtcClock(nowUtc.totalMinutes + solution.solution.totalTimeMin)}`
-            : solution.limitedByMinMach
-              ? `No exact solution at the selected descent IAS. Even slowing to Mach ${format(LOSE_TIME_MIN_OPTION_D_MACH, 3)}, the fix time is ${formatUtcClock(nowUtc.totalMinutes + solution.solution.totalTimeMin)}`
-            : "";
+      const anchoredSolutionUtcMinutes =
+        currentEtaUtc.targetUtcMinutes +
+        (solution.solution.totalTimeMin - solution.baseline.totalTimeMin);
+      const constraintNote = solution.limitedByFastest
+        ? `No exact solution. Even at Mach ${format(solution.maximumMach, 3)} and ${format(FIX_TIME_MAX_DESCENT_IAS_KT, 0)} kt descent IAS, the fix time is ${formatUtcClock(anchoredSolutionUtcMinutes)}`
+        : solution.limitedBySlowest
+          ? `No exact solution. Even slowing to Mach ${format(solution.minimumMach, 3)} and ${format(FIX_TIME_MIN_DESCENT_IAS_KT, 0)} kt descent IAS, the fix time is ${formatUtcClock(anchoredSolutionUtcMinutes)}`
+          : "";
 
       renderRows(out, [
         ["Current UTC", formatUtcClock(nowUtc.totalMinutes)],
@@ -6460,11 +6441,18 @@ function bindFixTimeAtFix() {
         ["Calculated Time at Fix (UTC)", formatUtcClock(solvedFixUtcMinutes)],
         ["Estimated Fix Crossing Altitude", `${format(solution.solution.fixCrossingAltitudeFt, 0)} ft`],
         [
-          "Cruise / Initial Descent Mach",
-          format(solution.requiredMach, 3),
+          solution.usedMachAdjustment
+            ? "Required Cruise / Initial Descent Mach"
+            : "Cruise / Initial Descent Mach",
+          format(solution.solvedMach, 3),
         ],
         ...(hasDescentSegment
-          ? [["Required Descent IAS (>10000 / <=10000)", `${format(solution.solution.descentIasAbove10kKt, 0)} / ${format(solution.solution.descentIasBelow10kKt, 0)} kt`]]
+          ? [[
+              solution.usedMachAdjustment
+                ? "Required Descent IAS (>10000 / <=10000)"
+                : "Descent IAS (>10000 / <=10000)",
+              `${format(solution.solution.descentIasAbove10kKt, 0)} / ${format(solution.solution.descentIasBelow10kKt, 0)} kt`,
+            ]]
           : []),
         ...(hasDescentSegment
           ? [["Mach/IAS Crossover Altitude", `${format(solution.solution.crossoverAltitudeFt, 0)} ft`]]
@@ -6478,7 +6466,6 @@ function bindFixTimeAtFix() {
     }
   });
 
-  setActiveSpeedSource(lastSpeedSource);
   applyTemperatureFieldStyle({
     sourceUsed: lastTempSource,
     isaDeviationEl: isaDevEl,

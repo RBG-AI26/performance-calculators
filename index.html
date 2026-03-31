@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.11.4</p>
+        <p class="app-version" id="app-version">Version v7.11.5</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -633,7 +633,7 @@
 
       <section class="panel" data-family="holding" aria-labelledby="fix-time-heading">
         <h2 id="fix-time-heading">Cruise + Descent Time at Fix</h2>
-        <p class="module-note">Enter the current FMC ETA and required UTC at the fix. The last edited speed box is treated as the fixed input and the other is solved.</p>
+        <p class="module-note">Enter the FMC-planned Mach and descent IAS. The solver anchors to the FMC ETA, adjusts descent IAS first within 230-340 kt, then adjusts Mach only if IAS limits cannot achieve the required fix time.</p>
         <form id="fix-time-form" class="grid">
           <label>
             Distance to Fix (NM)
@@ -660,12 +660,12 @@
             <input type="text" inputmode="numeric" id="ftf-fix-time-utc" value="" placeholder="14:30 or 1430" />
           </label>
           <label>
-            Cruise / Initial Descent Mach
-            <input type="text" inputmode="decimal" id="ftf-mach" value="" placeholder=".82" />
+            Planned Cruise / Initial Descent Mach
+            <input type="text" inputmode="decimal" id="ftf-mach" value="0.85" placeholder=".85" />
           </label>
           <label>
-            Descent IAS (kt)
-            <input type="number" step="1" id="ftf-ias" value="" placeholder="280" />
+            Planned Descent IAS (kt)
+            <input type="number" step="1" id="ftf-ias" value="300" placeholder="300" />
           </label>
           <label>
             ISA Deviation (°C)
