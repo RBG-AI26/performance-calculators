@@ -18,6 +18,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,10 +39,35 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      - name: Stage site files
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          cp app.js _site/
+          cp styles.css _site/
+          cp sw.js _site/
+          cp manifest.webmanifest _site/
+          cp sync-config.js _site/
+          cp .nojekyll _site/
+          cp apple-touch-icon.png _site/
+          cp favicon-192.png _site/
+          cp icon-192.png _site/
+          cp icon-512.png _site/
+          cp data.js _site/
+          cp diversion_data.js _site/
+          cp driftdown_data.js _site/
+          cp eo_diversion_data.js _site/
+          cp extracted_data.json _site/
+          cp flaps_up_data.js _site/
+          cp go_around_data.js _site/
+          cp lrc_altitude_limits_data.js _site/
+          cp lrc_data.js _site/
+          cp -R icons _site/
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment
