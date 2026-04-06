@@ -740,6 +740,41 @@
         </form>
         <div id="takeoff-crosswind-out" class="results"></div>
       </section>
+      <section class="panel" data-family="engine-out" aria-labelledby="crew-oxygen-heading">
+        <h2 id="crew-oxygen-heading">Crew Oxygen Endurance</h2>
+        <p class="module-note">Endurance from a known cylinder pressure. Based on FCOM PD.21.8/21.9 Tables 1–5.</p>
+        <p class="dpa-assumptions">Endurance is the lesser of protective breathing (Table 1) and supplemental breathing (Tables 2 &amp; 3) limits. Level-off altitude used only for supplemental calculation.</p>
+        <form id="crew-oxygen-form" class="grid">
+          <label>
+            Number of Crew Using O₂
+            <select id="oxy-crew">
+              <option value="2">2</option>
+              <option value="3" selected>3</option>
+              <option value="4">4</option>
+            </select>
+          </label>
+          <label>
+            Regulator Mode
+            <select id="oxy-regulator">
+              <option value="normal" selected>Normal</option>
+              <option value="100pct">100%</option>
+            </select>
+          </label>
+          <label>
+            Cylinder Pressure (PSI)
+            <input type="number" step="1" min="0" id="oxy-pressure" value="1800" />
+          </label>
+          <label>
+            Cylinder Temperature (°C)
+            <input type="number" step="1" id="oxy-temp" value="21" />
+          </label>
+          <label>
+            Level-Off Altitude (ft) <span class="label-note">(post-decompression cruise alt)</span>
+            <input type="number" step="1" min="0" id="oxy-leveloff-alt" value="14000" />
+          </label>
+        </form>
+        <div id="crew-oxygen-out" class="results"></div>
+      </section>
       </div>
     </main>
 
