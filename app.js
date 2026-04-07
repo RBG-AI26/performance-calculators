@@ -193,6 +193,33 @@ function parseAltOrFlInput(rawInput, label = "Alt/FL") {
   };
 }
 
+function parseWindDirSpeedInput(rawInput, label = "Wind") {
+  const rawText = String(rawInput ?? "").trim();
+  if (rawText === "") {
+    throw new Error(`${label} must be entered`);
+  }
+
+  const match = rawText.match(/^(\d{1,3})\s*\/\s*(\d{1,3})$/);
+  if (!match) {
+    throw new Error(`${label} must be entered as ddd/sss`);
+  }
+
+  const directionDeg = Number(match[1]);
+  const speedKt = Number(match[2]);
+  if (!Number.isFinite(directionDeg) || directionDeg < 0 || directionDeg > 360) {
+    throw new Error(`${label} direction must be between 0 and 360`);
+  }
+  if (!Number.isFinite(speedKt) || speedKt < 0) {
+    throw new Error(`${label} speed must be >= 0`);
+  }
+
+  return {
+    directionDeg,
+    speedKt,
+    normalizedText: `${String(directionDeg).padStart(3, "0")}/${format(speedKt, 0)}`,
+  };
+}
+
 function parseLoseTimeOptionDSpeedInput(rawInput) {
   const rawText = String(rawInput ?? "").trim();
   if (rawText === "") {
@@ -4905,6 +4932,7 @@ function bindTripFuel() {
   const weightModeEl = document.querySelector("#trip-weight-mode");
   const weightEl = document.querySelector("#trip-weight");
   const taxiEl = document.querySelector("#trip-taxi");
+  const plannedAddModeEl = document.querySelector("#trip-planned-add-mode");
   const plannedAddEl = document.querySelector("#trip-planned-add");
   const appEl = document.querySelector("#trip-app");
   const arrivalFuelModeEl = document.querySelector("#trip-arrival-fuel-mode");
@@ -4930,6 +4958,7 @@ function bindTripFuel() {
     !weightModeEl ||
     !weightEl ||
     !taxiEl ||
+    !plannedAddModeEl ||
     !plannedAddEl ||
     !appEl ||
     !arrivalFuelModeEl ||
@@ -4989,6 +5018,7 @@ function bindTripFuel() {
     contModeEl,
     frfModeEl,
     reqAdditionalModeEl,
+    plannedAddModeEl,
   ];
   const syncModeButtons = modeEls.map((modeEl) => bindModePills(form, modeEl)).filter(Boolean);
 
@@ -5057,11 +5087,16 @@ function bindTripFuel() {
       const landingWeightT = tripWeightContext.solvedLandingWeightT;
 
       const taxiKg = resolveKgInput("Taxi Fuel", taxiEl);
-      const plannedAddKg = resolveKgInput("Planned Add", plannedAddEl);
       const appKg = resolveKgInput("Approach Fuel", appEl);
 
       const frfFuelFlowKgHr = getHoldFuelFlowKgHr(landingWeightT, FRF_HOLD_ALTITUDE_FT, perfAdjust);
       const hold20000FuelFlowKgHr = getHoldFuelFlowKgHr(landingWeightT, ADDITIONAL_HOLD_ALTITUDE_FT, perfAdjust);
+      const plannedAddKg = resolveMixedEntryKg({
+        label: "Planned Add",
+        modeEl: plannedAddModeEl,
+        valueEl: plannedAddEl,
+        minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
+      });
       const autoBase = calculateTripFuelEnhanced({
         gnm,
         wind,
@@ -5948,8 +5983,7 @@ function bindHolding() {
     "#hold-alt",
     "#fuel-available",
     "#hold-inbound-course",
-    "#hold-wind-dir",
-    "#hold-wind-speed",
+    "#hold-wind",
     "#hold-timing-ias",
     "#hold-bank-limit",
   ].forEach((selector) => {
@@ -5995,10 +6029,10 @@ function bindHolding() {
       const perfAdjust = getGlobalPerfAdjust();
       const holdSide = String(document.querySelector("#hold-side").value || "R").toUpperCase();
       const inboundCourseDeg = parseNum(document.querySelector("#hold-inbound-course").value);
-      const windDirEl = document.querySelector("#hold-wind-dir");
-      const windSpeedEl = document.querySelector("#hold-wind-speed");
-      const windFromDeg = parseNumOrDefault(windDirEl.value, 0);
-      const windSpeedKt = parseNumOrDefault(windSpeedEl.value, 0);
+      const windEl = document.querySelector("#hold-wind");
+      const windInput = parseWindDirSpeedInput(windEl.value, "Wind");
+      const windFromDeg = windInput.directionDeg;
+      const windSpeedKt = windInput.speedKt;
       const timingIasRaw = String(document.querySelector("#hold-timing-ias").value || "").trim();
       const bankLimitRaw = String(document.querySelector("#hold-bank-limit").value || "").trim();
       const temperaturePair = resolveTemperaturePair({
@@ -6038,14 +6072,7 @@ function bindHolding() {
       if (!Number.isFinite(inboundCourseDeg) || inboundCourseDeg < 0) {
         throw new Error("Inbound course must be >= 0 deg");
       }
-      if (!Number.isFinite(windFromDeg) || windFromDeg < 0) {
-        throw new Error("Wind direction must be >= 0 deg");
-      }
-      if (!Number.isFinite(windSpeedKt) || windSpeedKt < 0) {
-        throw new Error("Wind speed must be >= 0 kt");
-      }
-      if (fieldIsBlank(windDirEl.value)) windDirEl.value = formatInputNumber(0, 0);
-      if (fieldIsBlank(windSpeedEl.value)) windSpeedEl.value = formatInputNumber(0, 0);
+      windEl.value = windInput.normalizedText;
 
       let timingMode;
       if (totalHoldRaw !== "" && inboundLegRaw !== "") {

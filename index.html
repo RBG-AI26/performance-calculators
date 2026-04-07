@@ -224,7 +224,14 @@
             </div>
             <div class="dpa-entry-row">
               <label class="dpa-entry-label" for="trip-planned-add">Planned Add</label>
-              <span class="dpa-static-chip">kg</span>
+              <select id="trip-planned-add-mode" class="sr-only">
+                <option value="kg" selected>kg</option>
+                <option value="min">min</option>
+              </select>
+              <div class="dpa-mode-pills" data-mode-for="trip-planned-add-mode">
+                <button type="button" data-mode-value="kg">kg</button>
+                <button type="button" data-mode-value="min">min</button>
+              </div>
               <input type="number" step="1" min="0" id="trip-planned-add" value="0" />
             </div>
           </div>
@@ -561,12 +568,8 @@
             </select>
           </label>
           <label>
-            Wind Direction (deg FROM)
-            <input type="number" step="1" min="0" id="hold-wind-dir" value="270" />
-          </label>
-          <label>
-            Wind Speed (kt)
-            <input type="number" step="1" min="0" id="hold-wind-speed" value="20" />
+            Wind (ddd/sss)
+            <input type="text" id="hold-wind" value="270/20" placeholder="270/20" />
           </label>
           <label>
             Planned Hold IAS
