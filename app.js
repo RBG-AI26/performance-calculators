@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.11.6";
+const APP_VERSION = "v7.11.7";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
@@ -7437,10 +7437,13 @@ function setAppVersionLabel() {
 // ─── Crew Oxygen Endurance ────────────────────────────────────────────────────
 
 // Table 4: Cylinder volume (1000 L) vs pressure at 21°C (PSI)
-// One 115 cu ft cylinder. We assume standard cylinder temperature and use the
-// indicated pressure directly.
+// One 115 cu ft cylinder, with conversion referenced at 21°C.
 const OXY_VOL_PRESSURE_AXIS_PSI  = [200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000];
 const OXY_VOL_1000L_VALUES       = [0.1, 0.3, 0.5, 0.7, 0.8, 1.0, 1.2, 1.4, 1.5, 1.7, 1.9, 2.1, 2.2, 2.4, 2.6, 2.7, 2.9, 3.1, 3.3];
+
+// Table 5: Pressure correction per 5°C relative to 21°C.
+const OXY_TEMP_CORR_PRESSURE_AXIS_PSI = [400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000];
+const OXY_TEMP_CORR_PER_5C = [7, 11, 14, 17, 21, 24, 28, 31, 34];
 
 // Table 1: Protective breathing O2 required (L) by number of crew.
 const OXY_PROTECTIVE_L = { 2: 660, 3: 990, 4: 1320 };
@@ -7494,6 +7497,13 @@ function oxyPressureToVolumeLiters(pressurePsi) {
   return oxyInterpolateLinear(OXY_VOL_PRESSURE_AXIS_PSI, OXY_VOL_1000L_VALUES, pressurePsi) * 1000;
 }
 
+function oxyTemperatureCorrectedPressure(pressurePsi, cylinderTempC) {
+  if (!Number.isFinite(pressurePsi) || pressurePsi <= 0 || !Number.isFinite(cylinderTempC)) return 0;
+  const corrPer5C = oxyInterpolateLinear(OXY_TEMP_CORR_PRESSURE_AXIS_PSI, OXY_TEMP_CORR_PER_5C, pressurePsi);
+  const delta5C = (cylinderTempC - 21) / 5;
+  return Math.max(pressurePsi - delta5C * corrPer5C, 0);
+}
+
 function oxyTable2OngoingRatePerHour(crew) {
   const table = OXY_SUPPLEMENTAL_14K_NORMAL[crew];
   return (table[3] - table[0]) / 3;
@@ -7512,9 +7522,10 @@ function oxyTable3RatePerMin(crew, altFt, regulatorMode) {
   return regulatorMode === "100pct" ? entry[1] : entry[0];
 }
 
-function calculateCrewOxygenEndurance({ crew, regulatorMode, cylinderPressurePsi, cabinAltFt }) {
+function calculateCrewOxygenEndurance({ crew, regulatorMode, cylinderPressurePsi, cylinderTempC, cabinAltFt }) {
   const boundedCabinAltFt = clamp(cabinAltFt, 0, OXY_MAX_CABIN_ALT_FT);
-  const availableL = oxyPressureToVolumeLiters(cylinderPressurePsi);
+  const correctedPressurePsi = oxyTemperatureCorrectedPressure(cylinderPressurePsi, cylinderTempC);
+  const availableL = oxyPressureToVolumeLiters(correctedPressurePsi);
   const protectiveRequiredL = OXY_PROTECTIVE_L[crew];
   const protectiveCovered = availableL >= protectiveRequiredL;
   const initialDescentLiters = oxyInitialDescentLiters(crew);
@@ -7531,6 +7542,8 @@ function calculateCrewOxygenEndurance({ crew, regulatorMode, cylinderPressurePsi
   }
 
   return {
+    cylinderTempC,
+    correctedPressurePsi,
     availableL,
     protectiveRequiredL,
     protectiveCovered,
@@ -7541,7 +7554,7 @@ function calculateCrewOxygenEndurance({ crew, regulatorMode, cylinderPressurePsi
     ongoingRatePerHour,
     cabinAltFt: boundedCabinAltFt,
     cabinAltClamped: boundedCabinAltFt !== cabinAltFt,
-    pressureClampedHigh: cylinderPressurePsi > OXY_VOL_PRESSURE_AXIS_PSI[OXY_VOL_PRESSURE_AXIS_PSI.length - 1],
+    pressureClampedHigh: correctedPressurePsi > OXY_VOL_PRESSURE_AXIS_PSI[OXY_VOL_PRESSURE_AXIS_PSI.length - 1],
     totalEnduranceMin,
   };
 }
@@ -7554,6 +7567,7 @@ function bindCrewOxygenEndurance() {
   const crewEl = document.querySelector("#oxy-crew");
   const regulatorEl = document.querySelector("#oxy-regulator");
   const pressureEl = document.querySelector("#oxy-pressure");
+  const tempEl = document.querySelector("#oxy-temp");
   const cabinAltEl = document.querySelector("#oxy-cabin-alt");
 
   const autoRecalculate = (sourceEl = null) => {
@@ -7562,6 +7576,7 @@ function bindCrewOxygenEndurance() {
   };
 
   bindCommittedInput(pressureEl, autoRecalculate);
+  bindCommittedInput(tempEl, autoRecalculate);
   bindCommittedInput(cabinAltEl, autoRecalculate);
   crewEl.addEventListener("change", () => autoRecalculate(crewEl));
   regulatorEl.addEventListener("change", () => autoRecalculate(regulatorEl));
@@ -7570,6 +7585,7 @@ function bindCrewOxygenEndurance() {
     event.preventDefault();
     if (missingFieldsBanner(out, [
       fieldIsBlank(pressureEl.value) ? "Oxygen Pressure" : "",
+      fieldIsBlank(tempEl.value) ? "Cylinder Temperature" : "",
       fieldIsBlank(cabinAltEl.value) ? "Cabin Altitude" : "",
     ])) return;
 
@@ -7577,18 +7593,22 @@ function bindCrewOxygenEndurance() {
       const crew = parseInt(crewEl.value, 10);
       const regulatorMode = regulatorEl.value;
       const pressurePsi = parseNum(pressureEl.value);
+      const cylinderTempC = parseNum(tempEl.value);
       const cabinAltFt = parseNum(cabinAltEl.value);
 
       const r = calculateCrewOxygenEndurance({
         crew,
         regulatorMode,
         cylinderPressurePsi: pressurePsi,
+        cylinderTempC,
         cabinAltFt,
       });
 
       const rows = [
         ["Regulator Mode", regulatorMode === "100pct" ? "100%" : "Normal"],
         ["Oxygen Pressure", `${format(pressurePsi, 0)} PSI`],
+        ["Cylinder Temperature", `${format(cylinderTempC, 0)} °C`],
+        ["Corrected Pressure @ 21°C", `${format(r.correctedPressurePsi, 0)} PSI`],
         ["Cabin Altitude Used", `${format(r.cabinAltFt, 0)} ft`],
         ["Oxygen Available", `${format(r.availableL, 0)} L`],
         ["__spacer__", ""],
