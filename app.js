@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.11.5";
+const APP_VERSION = "v7.11.6";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
@@ -7437,56 +7437,47 @@ function setAppVersionLabel() {
 // ─── Crew Oxygen Endurance ────────────────────────────────────────────────────
 
 // Table 4: Cylinder volume (1000 L) vs pressure at 21°C (PSI)
-// One 115 cu ft cylinder
+// One 115 cu ft cylinder. We assume standard cylinder temperature and use the
+// indicated pressure directly.
 const OXY_VOL_PRESSURE_AXIS_PSI  = [200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000];
-const OXY_VOL_1000L_VALUES       = [0.1, 0.3, 0.5, 0.7, 0.8, 1.0, 1.2, 1.4,  1.5,  1.7,  1.9,  2.1,  2.2,  2.4,  2.6,  2.7,  2.9,  3.1,  3.3];
+const OXY_VOL_1000L_VALUES       = [0.1, 0.3, 0.5, 0.7, 0.8, 1.0, 1.2, 1.4, 1.5, 1.7, 1.9, 2.1, 2.2, 2.4, 2.6, 2.7, 2.9, 3.1, 3.3];
 
-// Table 5: Temperature correction — pressure correction per 5°C above/below 21°C
-const OXY_TEMP_CORR_PRESSURE_AXIS_PSI = [400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000];
-const OXY_TEMP_CORR_PER_5C            = [  7,  11,  14,   17,   21,   24,   28,   31,   34];
-
-// Table 1: Protective breathing O2 required (L) by number of crew
+// Table 1: Protective breathing O2 required (L) by number of crew.
 const OXY_PROTECTIVE_L = { 2: 660, 3: 990, 4: 1320 };
 
-// Table 2: Supplemental O2 for level-off at 14000 ft (L), rows = crew, cols = hours (2,3,4,5)
-// Mode: normal (not 100%)
+// Table 2: Oxygen required for level off at 14000 ft (L), rows = crew,
+// cols = total post decompression flight time (2,3,4,5 hr).
 const OXY_SUPPLEMENTAL_14K_NORMAL = {
-  2: [660,  960, 1270, 1570],
+  2: [660, 960, 1270, 1570],
   3: [980, 1440, 1900, 2360],
   4: [1310, 1920, 2530, 3140],
 };
-// 100% mode: use the values in parentheses from Table 3 (per-minute flow rates per crew member)
-// For the 14000 ft level-off values, Table 2 applies (same for both modes per FCOM;
-// the parenthetical values in Table 3 are adjustments *above* 14000 ft).
-// We use the same Table 2 values and apply 100% flow adjustments only for the Table 3 altitude increment.
 
-// Table 3: Additional L per minute held at intermediate altitude ABOVE 14000 ft
-// Keys are altitude band labels; value is [normal, 100%] per-crew array indexed by crew count 2/3/4
-// Bands: up to 13999, 14000, 14001-17999, 18000-21999, 22000-29000
-// The table gives: crew 2: normal(100%) = 0(22) | 0(17) | 1(16) | 3(12) | 6(10)
-//                  crew 3: 0(33) | 0(25) | 2(24) | 5(18) | 8(15)
-//                  crew 4: 0(44) | 0(34) | 2(32) | 6(24) | 11(20)
+// Table 3: Additional liters required for each minute held above / at 14000 ft.
+// Values in parentheses are for 100% regulator mode.
 const OXY_TABLE3 = {
-  // band: { 2: [normal, pct100], 3: [normal, pct100], 4: [normal, pct100] }
-  upTo13999:   { 2: [0, 22],  3: [0, 33],  4: [0, 44]  },
-  at14000:     { 2: [0, 17],  3: [0, 25],  4: [0, 34]  },
-  14001to17999:{ 2: [1, 16],  3: [2, 24],  4: [2, 32]  },
-  18000to21999:{ 2: [3, 12],  3: [5, 18],  4: [6, 24]  },
-  22000to29000:{ 2: [6, 10],  3: [8, 15],  4: [11, 20] },
+  upTo13999: { 2: [0, 22], 3: [0, 33], 4: [0, 44] },
+  at14000: { 2: [0, 17], 3: [0, 25], 4: [0, 34] },
+  "14001to17999": { 2: [1, 16], 3: [2, 24], 4: [2, 32] },
+  "18000to21999": { 2: [3, 12], 3: [5, 18], 4: [6, 24] },
+  "22000to29000": { 2: [6, 10], 3: [8, 15], 4: [11, 20] },
 };
 
+const OXY_INITIAL_DESCENT_MIN = 10;
+const OXY_MAX_CABIN_ALT_FT = 29000;
+
 function oxyGetAltBand(altFt) {
-  if (altFt <= 13999) return 'upTo13999';
-  if (altFt === 14000) return 'at14000';
-  if (altFt <= 17999) return '14001to17999';
-  if (altFt <= 21999) return '18000to21999';
-  return '22000to29000';
+  if (altFt <= 13999) return "upTo13999";
+  if (altFt === 14000) return "at14000";
+  if (altFt <= 17999) return "14001to17999";
+  if (altFt <= 21999) return "18000to21999";
+  return "22000to29000";
 }
 
 function oxyInterpolateLinear(xAxis, yAxis, x) {
   if (x <= xAxis[0]) return yAxis[0];
   if (x >= xAxis[xAxis.length - 1]) return yAxis[yAxis.length - 1];
-  for (let i = 0; i < xAxis.length - 1; i++) {
+  for (let i = 0; i < xAxis.length - 1; i += 1) {
     if (x >= xAxis[i] && x <= xAxis[i + 1]) {
       const t = (x - xAxis[i]) / (xAxis[i + 1] - xAxis[i]);
       return yAxis[i] + t * (yAxis[i + 1] - yAxis[i]);
@@ -7495,167 +7486,128 @@ function oxyInterpolateLinear(xAxis, yAxis, x) {
   return yAxis[yAxis.length - 1];
 }
 
-function oxyTemperatureCorrectedPressure(pressurePsi, tempC) {
-  // Table 5: adjust indicated pressure to 21°C equivalent
-  const deltaDeg5 = (tempC - 21) / 5;
-  const corrPerUnit = oxyInterpolateLinear(OXY_TEMP_CORR_PRESSURE_AXIS_PSI, OXY_TEMP_CORR_PER_5C, pressurePsi);
-  // If temp > 21°C cylinder is warmer — actual volume is less than gauge suggests, so reduce corrected pressure
-  // +32/-32 per 5°C above/below 21°C (positive temp = reduce corrected pressure)
-  const correctedPsi = pressurePsi - deltaDeg5 * corrPerUnit;
-  return correctedPsi;
-}
-
 function oxyPressureToVolumeLiters(pressurePsi) {
-  // Table 4: volume in liters from pressure at 21°C
+  if (!Number.isFinite(pressurePsi) || pressurePsi <= 0) return 0;
+  if (pressurePsi < OXY_VOL_PRESSURE_AXIS_PSI[0]) {
+    return (pressurePsi / OXY_VOL_PRESSURE_AXIS_PSI[0]) * OXY_VOL_1000L_VALUES[0] * 1000;
+  }
   return oxyInterpolateLinear(OXY_VOL_PRESSURE_AXIS_PSI, OXY_VOL_1000L_VALUES, pressurePsi) * 1000;
 }
 
-function oxySupplementalLitersForHours(crew, hours) {
-  // Table 2: supplemental O2 for level-off at 14000 ft
+function oxyTable2OngoingRatePerHour(crew) {
   const table = OXY_SUPPLEMENTAL_14K_NORMAL[crew];
-  const hoursAxis = [2, 3, 4, 5];
-  return oxyInterpolateLinear(hoursAxis, table, hours);
+  return (table[3] - table[0]) / 3;
+}
+
+function oxyInitialDescentLiters(crew) {
+  const ongoingRatePerHour = oxyTable2OngoingRatePerHour(crew);
+  const twoHourRequirement = OXY_SUPPLEMENTAL_14K_NORMAL[crew][0];
+  const hoursAfterDescent = 2 - OXY_INITIAL_DESCENT_MIN / 60;
+  return twoHourRequirement - ongoingRatePerHour * hoursAfterDescent;
 }
 
 function oxyTable3RatePerMin(crew, altFt, regulatorMode) {
   const band = oxyGetAltBand(altFt);
   const entry = OXY_TABLE3[band][crew];
-  return regulatorMode === '100pct' ? entry[1] : entry[0];
+  return regulatorMode === "100pct" ? entry[1] : entry[0];
 }
 
-function calculateCrewOxygenEndurance({ crew, regulatorMode, cylinderPressurePsi, cylinderTempC, levelOffAltFt }) {
-  // Step 1: Temperature-correct pressure and convert to available volume
-  const correctedPsi = oxyTemperatureCorrectedPressure(cylinderPressurePsi, cylinderTempC);
-  const availableL = oxyPressureToVolumeLiters(correctedPsi);
-
-  // Step 2: Protective breathing endurance (Table 1)
-  // Table 1 gives fixed requirement independent of time — this is a pass/fail minimum
-  // For endurance: protective breathing uses a fixed flow of OXY_PROTECTIVE_L[crew] for a defined mission
-  // To express endurance, we derive it as: availableL / (OXY_PROTECTIVE_L[crew] / nominalProtectiveDurationMin)
-  // FCOM Table 1 protection basis is for a fixed event (not time-variable), so we treat
-  // protective endurance as: how many protective-breathing events can be covered.
-  // Practically: protective endurance hours = availableL / (protective_L_per_event_per_crew)
-  // The FCOM protective requirement is a fixed quantity (not per-hour), so we report
-  // how many times Table 1 can be satisfied, and also express as multiples.
+function calculateCrewOxygenEndurance({ crew, regulatorMode, cylinderPressurePsi, cabinAltFt }) {
+  const boundedCabinAltFt = clamp(cabinAltFt, 0, OXY_MAX_CABIN_ALT_FT);
+  const availableL = oxyPressureToVolumeLiters(cylinderPressurePsi);
   const protectiveRequiredL = OXY_PROTECTIVE_L[crew];
-  const protectiveMultiples = availableL / protectiveRequiredL;
-
-  // Step 3: Supplemental breathing endurance (Tables 2 & 3)
-  // At 14000 ft: solve for hours where table2(hours) = availableL
-  // For altitudes != 14000 ft: supplemental = table2(hours) + table3_rate * (alt_hold_duration)
-  // Since we want endurance, we solve: availableL = table2(hours) + table3_rate_per_min * (hours * 60)
-  // i.e. total = table2_component + per_minute_adjustment * total_minutes
-  // We iterate/solve numerically for hours
-
-  const table3RatePerMin = oxyTable3RatePerMin(crew, levelOffAltFt, regulatorMode);
-
-  // Solve: availableL = supplementalAt14k(H) + table3RatePerMin * H * 60
-  // We binary-search H in [0, 10] hours
-  let lo = 0, hi = 10;
-  for (let i = 0; i < 60; i++) {
-    const mid = (lo + hi) / 2;
-    const needed = oxySupplementalLitersForHours(crew, mid) + table3RatePerMin * mid * 60;
-    if (needed < availableL) lo = mid;
-    else hi = mid;
-  }
-  const supplementalEnduranceHrs = (lo + hi) / 2;
-
-  // Limiting endurance: lesser of protective multiples expressed as hours equivalent,
-  // and supplemental hours. Since protective is event-based, the meaningful output is
-  // the supplemental endurance limited by whether protective can be covered.
   const protectiveCovered = availableL >= protectiveRequiredL;
+  const initialDescentLiters = oxyInitialDescentLiters(crew);
+  const baseRatePerHour = oxyTable2OngoingRatePerHour(crew);
+  const table3RatePerMin = oxyTable3RatePerMin(crew, boundedCabinAltFt, regulatorMode);
+  const ongoingRatePerHour = baseRatePerHour + table3RatePerMin * 60;
+  const litersAfterInitialDescent = Math.max(availableL - initialDescentLiters, 0);
 
-  // Format helpers
-  const hrsToHrMin = (h) => {
-    const totalMin = Math.round(h * 60);
-    const hh = Math.floor(totalMin / 60);
-    const mm = totalMin % 60;
-    return `${hh}h ${mm.toString().padStart(2, '0')}m`;
-  };
+  let totalEnduranceMin;
+  if (availableL <= initialDescentLiters) {
+    totalEnduranceMin = (availableL / initialDescentLiters) * OXY_INITIAL_DESCENT_MIN;
+  } else {
+    totalEnduranceMin = OXY_INITIAL_DESCENT_MIN + (litersAfterInitialDescent / ongoingRatePerHour) * 60;
+  }
 
   return {
-    correctedPsi,
     availableL,
     protectiveRequiredL,
     protectiveCovered,
-    protectiveMultiples,
-    supplementalEnduranceHrs,
+    initialDescentLiters,
+    litersAfterInitialDescent,
+    baseRatePerHour,
     table3RatePerMin,
-    levelOffAltFt,
-    hrsToHrMin,
+    ongoingRatePerHour,
+    cabinAltFt: boundedCabinAltFt,
+    cabinAltClamped: boundedCabinAltFt !== cabinAltFt,
+    pressureClampedHigh: cylinderPressurePsi > OXY_VOL_PRESSURE_AXIS_PSI[OXY_VOL_PRESSURE_AXIS_PSI.length - 1],
+    totalEnduranceMin,
   };
 }
 
 function bindCrewOxygenEndurance() {
-  const form = document.querySelector('#crew-oxygen-form');
-  const out  = document.querySelector('#crew-oxygen-out');
+  const form = document.querySelector("#crew-oxygen-form");
+  const out = document.querySelector("#crew-oxygen-out");
   if (!form || !out) return;
 
-  const crewEl      = document.querySelector('#oxy-crew');
-  const regulatorEl = document.querySelector('#oxy-regulator');
-  const pressureEl  = document.querySelector('#oxy-pressure');
-  const tempEl      = document.querySelector('#oxy-temp');
-  const levelOffEl  = document.querySelector('#oxy-leveloff-alt');
+  const crewEl = document.querySelector("#oxy-crew");
+  const regulatorEl = document.querySelector("#oxy-regulator");
+  const pressureEl = document.querySelector("#oxy-pressure");
+  const cabinAltEl = document.querySelector("#oxy-cabin-alt");
 
   const autoRecalculate = (sourceEl = null) => {
     if (shouldDeferLiveSubmitForInput(sourceEl)) return;
-    form.dispatchEvent(new Event('submit'));
+    form.dispatchEvent(new Event("submit"));
   };
 
   bindCommittedInput(pressureEl, autoRecalculate);
-  bindCommittedInput(tempEl, autoRecalculate);
-  bindCommittedInput(levelOffEl, autoRecalculate);
-  crewEl.addEventListener('change', () => autoRecalculate(crewEl));
-  regulatorEl.addEventListener('change', () => autoRecalculate(regulatorEl));
+  bindCommittedInput(cabinAltEl, autoRecalculate);
+  crewEl.addEventListener("change", () => autoRecalculate(crewEl));
+  regulatorEl.addEventListener("change", () => autoRecalculate(regulatorEl));
 
-  form.addEventListener('submit', (event) => {
+  form.addEventListener("submit", (event) => {
     event.preventDefault();
     if (missingFieldsBanner(out, [
-      fieldIsBlank(pressureEl.value) ? 'Cylinder Pressure' : '',
-      fieldIsBlank(tempEl.value) ? 'Cylinder Temperature' : '',
-      fieldIsBlank(levelOffEl.value) ? 'Level-Off Altitude' : '',
+      fieldIsBlank(pressureEl.value) ? "Oxygen Pressure" : "",
+      fieldIsBlank(cabinAltEl.value) ? "Cabin Altitude" : "",
     ])) return;
 
     try {
-      const crew           = parseInt(crewEl.value, 10);
-      const regulatorMode  = regulatorEl.value;
-      const pressurePsi    = parseNum(pressureEl.value);
-      const tempC          = parseNum(tempEl.value);
-      const levelOffAltFt  = parseNum(levelOffEl.value);
+      const crew = parseInt(crewEl.value, 10);
+      const regulatorMode = regulatorEl.value;
+      const pressurePsi = parseNum(pressureEl.value);
+      const cabinAltFt = parseNum(cabinAltEl.value);
 
       const r = calculateCrewOxygenEndurance({
         crew,
         regulatorMode,
         cylinderPressurePsi: pressurePsi,
-        cylinderTempC: tempC,
-        levelOffAltFt,
+        cabinAltFt,
       });
 
-      const supplementalNote = r.levelOffAltFt !== 14000
-        ? `(Table 3 adj: ${format(r.table3RatePerMin, 0)} L/min at ${format(r.levelOffAltFt, 0)} ft)`
-        : '(14000 ft level-off, no Table 3 adjustment)';
-
       const rows = [
-        ['__section__', 'Cylinder'],
-        ['Indicated Pressure', `${format(pressurePsi, 0)} PSI`],
-        ['Temp-Corrected Pressure', `${format(r.correctedPsi, 0)} PSI at 21°C equivalent`],
-        ['Available Volume', `${format(r.availableL, 0)} L`],
-        ['__spacer__', ''],
-        ['__section__', 'Protective Breathing (Table 1)'],
-        ['Required (fixed event)', `${format(r.protectiveRequiredL, 0)} L`],
-        ['Protective Requirement Met', r.protectiveCovered ? 'Yes' : 'NO — insufficient oxygen'],
-        ...(r.protectiveCovered ? [['Protective Multiples Available', `${format(r.protectiveMultiples, 2)}×`]] : []),
-        ['__spacer__', ''],
-        ['__section__', 'Supplemental Breathing (Tables 2 & 3)'],
-        ['Level-Off Altitude', `${format(r.levelOffAltFt, 0)} ft`],
-        ['Basis', supplementalNote],
-        ['Supplemental Endurance', `${r.hrsToHrMin(r.supplementalEnduranceHrs)} (${format(r.supplementalEnduranceHrs, 2)} hr)`],
-        ['__spacer__', ''],
-        ['__section__', 'Summary'],
+        ["Regulator Mode", regulatorMode === "100pct" ? "100%" : "Normal"],
+        ["Oxygen Pressure", `${format(pressurePsi, 0)} PSI`],
+        ["Cabin Altitude Used", `${format(r.cabinAltFt, 0)} ft`],
+        ["Oxygen Available", `${format(r.availableL, 0)} L`],
+        ["__spacer__", ""],
+        ["Initial 10-Min Descent Allowance", `${format(r.initialDescentLiters, 0)} L`],
+        ["Ongoing Base Rate @ 14,000 ft", `${format(r.baseRatePerHour, 0)} L/hr`],
+        ["Table 3 Adjustment", `${format(r.table3RatePerMin, 0)} L/min`],
+        ["Ongoing Rate at Cabin Altitude", `${format(r.ongoingRatePerHour, 0)} L/hr`],
+        ["Oxygen After Initial 10 Minutes", `${format(r.litersAfterInitialDescent, 0)} L`],
+        ["__spacer__", ""],
+        ["Endurance", formatMinutes(r.totalEnduranceMin)],
+        ...(r.pressureClampedHigh
+          ? [["__warning__", `Oxygen pressure above ${format(OXY_VOL_PRESSURE_AXIS_PSI[OXY_VOL_PRESSURE_AXIS_PSI.length - 1], 0)} PSI uses the top of the embedded pressure-volume table.`]]
+          : []),
+        ...(r.cabinAltClamped
+          ? [["__warning__", `Cabin altitude capped at ${format(OXY_MAX_CABIN_ALT_FT, 0)} ft because Table 3 is only defined up to that altitude.`]]
+          : []),
         ...(!r.protectiveCovered
-          ? [['__warning__', 'Protective breathing requirement NOT met — insufficient cylinder pressure for this crew count.']]
-          : [['Limiting Endurance', `${r.hrsToHrMin(r.supplementalEnduranceHrs)}`]]
-        ),
+          ? [["__warning__", "Protective breathing requirement from Table 1 is not met at this pressure / crew combination."]]
+          : []),
       ];
 
       renderRows(out, rows);
