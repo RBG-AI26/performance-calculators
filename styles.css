@@ -306,7 +306,7 @@ body {
 }
 
 #crew-oxygen-form {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1.35fr 1.35fr 0.95fr 0.95fr;
 }
 
 #crew-oxygen-form input,
