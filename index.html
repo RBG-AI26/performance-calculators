@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.11.7</p>
+        <p class="app-version" id="app-version">Version v7.11.9</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -709,6 +709,34 @@
           </label>
         </form>
         <div id="conversion-out" class="results"></div>
+      </section>
+
+      <section class="panel" data-family="altitude" aria-labelledby="wind-trade-heading">
+        <h2 id="wind-trade-heading">Wind Altitude Trade</h2>
+        <p class="module-note">Break-even wind trade at long range cruise. Positive wind is favorable. No climb or descent allowance is applied.</p>
+        <form id="wind-trade-form" class="grid">
+          <label>
+            Weight (t)
+            <input type="number" step="0.1" min="0" id="wat-weight" value="180" />
+          </label>
+          <label>
+            Present Alt/FL
+            <input type="number" step="1" id="wat-present-fl" value="350" />
+          </label>
+          <label>
+            Present Wind (kt)
+            <input type="number" step="1" id="wat-present-wind" value="0" />
+          </label>
+          <label>
+            New Alt/FL
+            <input type="number" step="1" id="wat-new-fl" value="370" />
+          </label>
+          <label>
+            New Wind (kt)
+            <input type="number" step="1" id="wat-new-wind" value="0" />
+          </label>
+        </form>
+        <div id="wind-trade-out" class="results"></div>
       </section>
 
       <section class="panel" aria-labelledby="takeoff-crosswind-heading">

@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.11.7";
+const APP_VERSION = "v7.11.9";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
@@ -18,7 +18,7 @@ const THEME_STORAGE_KEY = "performance-calculators-theme-v1";
 const SYNC_SESSION_STORAGE_KEY = "performance-calculators-sync-session-v2";
 const SYNC_AUTH_STORAGE_KEY = "performance-calculators-sync-auth-v1";
 const NON_PERSISTED_FIELD_IDS = new Set(["scenario-name", "scenario-select", "theme-mode"]);
-const LINKED_START_WEIGHT_FIELD_IDS = ["dpa-weight", "lrc-alt-weight", "eo-weight", "eo-div-weight", "tcw-weight"];
+const LINKED_START_WEIGHT_FIELD_IDS = ["dpa-weight", "lrc-alt-weight", "eo-weight", "eo-div-weight", "wat-weight", "tcw-weight"];
 const DEFAULT_THEME_MODE = "auto";
 const SYNC_STATUS_REFRESH_SKEW_MS = 60 * 1000;
 const SYNC_SCENARIO_FILE_TYPE = "performance-calculators-scenario";
@@ -64,6 +64,21 @@ const LOSE_TIME_MAX_OPTION_D_DESCENT_IAS_KT = 400;
 const FIX_TIME_MIN_DESCENT_IAS_KT = 230;
 const FIX_TIME_MAX_DESCENT_IAS_KT = 340;
 const FIX_TIME_MAX_MACH = 0.88;
+const WIND_ALT_TRADE_WEIGHT_AXIS_T = [120, 140, 160, 180, 200, 220, 240, 260, 280];
+const WIND_ALT_TRADE_ALT_AXIS_FL = [23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43];
+const WIND_ALT_TRADE_FACTORS_BY_FL = {
+  23: [115, 109, 101, 91, 80, 68, 56, 44, 33],
+  25: [112, 104, 94, 82, 69, 56, 43, 31, 20],
+  27: [108, 97, 85, 71, 57, 43, 30, 18, 9],
+  29: [102, 89, 75, 59, 44, 29, 17, 7, 1],
+  31: [95, 80, 63, 46, 30, 16, 6, 1, 1],
+  33: [87, 68, 50, 32, 16, 5, 0, 3, 14],
+  35: [76, 55, 35, 18, 5, 0, 4, 19, 48],
+  37: [64, 41, 21, 6, 0, 5, 24, 60, NaN],
+  39: [50, 27, 9, 0, 5, 27, 70, NaN, NaN],
+  41: [35, 13, 1, 4, 27, 76, NaN, NaN, NaN],
+  43: [21, 3, 2, 24, 77, NaN, NaN, NaN, NaN],
+};
 const GO_AROUND_ANTI_ICE_ADJUSTMENT = {
   engineOn: { oatLe8: -0.1, oatGt8Le20: -0.2 },
   engineWingOn: { oatLe8: -0.1, oatGt8Le20: -0.2 },
@@ -3819,6 +3834,7 @@ function recalculateAllForms() {
     "#holding-form",
     "#lose-time-form",
     "#conversion-form",
+    "#wind-trade-form",
     "#takeoff-crosswind-form",
   ].forEach((selector) => {
     const form = document.querySelector(selector);
@@ -6772,6 +6788,203 @@ function calculateCogLimit(grossWeight1000Kg) {
   };
 }
 
+function getWindTradeFinitePairsForFl(tableFl) {
+  const row = WIND_ALT_TRADE_FACTORS_BY_FL[tableFl];
+  if (!row) return [];
+  return WIND_ALT_TRADE_WEIGHT_AXIS_T.map((weightT, index) => ({
+    weightT,
+    factor: row[index],
+  })).filter((entry) => Number.isFinite(entry.factor));
+}
+
+function interpolateWindTradeFactorForFl(tableFl, weightT) {
+  const pairs = getWindTradeFinitePairsForFl(tableFl);
+  if (pairs.length === 0) return NaN;
+  const minWeightT = pairs[0].weightT;
+  const maxWeightT = pairs[pairs.length - 1].weightT;
+  if (weightT < minWeightT || weightT > maxWeightT) return NaN;
+  if (pairs.length === 1) return pairs[0].factor;
+  return linear(
+    pairs.map((entry) => entry.weightT),
+    pairs.map((entry) => entry.factor),
+    weightT,
+  );
+}
+
+function getWindTradeValidFlAxis(weightT) {
+  return WIND_ALT_TRADE_ALT_AXIS_FL.filter((tableFl) => Number.isFinite(interpolateWindTradeFactorForFl(tableFl, weightT)));
+}
+
+function lookupWindTradeFactor(tableFlInput, weightT) {
+  const validFlAxis = getWindTradeValidFlAxis(weightT);
+  if (validFlAxis.length === 0) {
+    throw new Error("No valid wind-altitude trade data for that weight");
+  }
+
+  const minFl = validFlAxis[0];
+  const maxFl = validFlAxis[validFlAxis.length - 1];
+  const usedTableFl = clamp(tableFlInput, minFl, maxFl);
+  const warnings = [];
+  if (usedTableFl !== tableFlInput) {
+    warnings.push(`FL${format(tableFlInput * 10, 0)} clamped to FL${format(usedTableFl * 10, 0)} for available table data`);
+  }
+
+  if (validFlAxis.includes(usedTableFl)) {
+    return {
+      requestedTableFl: tableFlInput,
+      usedTableFl,
+      factor: interpolateWindTradeFactorForFl(usedTableFl, weightT),
+      warnings,
+    };
+  }
+
+  let lowerFl = validFlAxis[0];
+  let upperFl = validFlAxis[validFlAxis.length - 1];
+  for (let index = 0; index < validFlAxis.length - 1; index += 1) {
+    const left = validFlAxis[index];
+    const right = validFlAxis[index + 1];
+    if (usedTableFl >= left && usedTableFl <= right) {
+      lowerFl = left;
+      upperFl = right;
+      break;
+    }
+  }
+
+  const lowerFactor = interpolateWindTradeFactorForFl(lowerFl, weightT);
+  const upperFactor = interpolateWindTradeFactorForFl(upperFl, weightT);
+
+  return {
+    requestedTableFl: tableFlInput,
+    usedTableFl,
+    factor: linear([lowerFl, upperFl], [lowerFactor, upperFactor], usedTableFl),
+    warnings,
+  };
+}
+
+function calculateWindAltitudeTrade({ weightT, presentAltInput, presentWindKt, newAltInput, newWindKt }) {
+  if (!Number.isFinite(weightT) || weightT <= 0) {
+    throw new Error("Weight must be > 0");
+  }
+  if (!Number.isFinite(presentWindKt) || !Number.isFinite(newWindKt)) {
+    throw new Error("Wind is invalid");
+  }
+
+  const minWeightT = WIND_ALT_TRADE_WEIGHT_AXIS_T[0];
+  const maxWeightT = WIND_ALT_TRADE_WEIGHT_AXIS_T[WIND_ALT_TRADE_WEIGHT_AXIS_T.length - 1];
+  const usedWeightT = clamp(weightT, minWeightT, maxWeightT);
+  const warnings = [];
+  if (usedWeightT !== weightT) {
+    warnings.push(`Weight clamped to ${format(usedWeightT, 1)} t`);
+  }
+
+  const presentParsed = parseAltOrFlInput(presentAltInput, "Present Alt/FL");
+  const newParsed = parseAltOrFlInput(newAltInput, "New Alt/FL");
+  const presentTableFl = userFlToTableFl(presentParsed.flightLevel);
+  const newTableFl = userFlToTableFl(newParsed.flightLevel);
+
+  const present = lookupWindTradeFactor(presentTableFl, usedWeightT);
+  const proposed = lookupWindTradeFactor(newTableFl, usedWeightT);
+  warnings.push(...present.warnings.map((warning) => `Present altitude: ${warning}`));
+  warnings.push(...proposed.warnings.map((warning) => `New altitude: ${warning}`));
+
+  const windFactorDifferenceKt = proposed.factor - present.factor;
+  const breakEvenWindKt = presentWindKt + windFactorDifferenceKt;
+  const windMarginKt = newWindKt - breakEvenWindKt;
+
+  let recommendation;
+  if (windMarginKt > 0.5) {
+    recommendation = `New altitude is favorable by ${format(windMarginKt, 1)} kt equivalent`;
+  } else if (windMarginKt < -0.5) {
+    recommendation = `Present altitude remains better by ${format(Math.abs(windMarginKt), 1)} kt equivalent`;
+  } else {
+    recommendation = "New altitude is effectively break-even";
+  }
+
+  return {
+    requestedWeightT: weightT,
+    usedWeightT,
+    presentRequestedTableFl: presentTableFl,
+    presentUsedTableFl: present.usedTableFl,
+    newRequestedTableFl: newTableFl,
+    newUsedTableFl: proposed.usedTableFl,
+    presentWindKt,
+    newWindKt,
+    presentFactorKt: present.factor,
+    newFactorKt: proposed.factor,
+    windFactorDifferenceKt,
+    breakEvenWindKt,
+    windMarginKt,
+    recommendation,
+    warnings,
+  };
+}
+
+function bindWindAltitudeTrade() {
+  const form = document.querySelector("#wind-trade-form");
+  const out = document.querySelector("#wind-trade-out");
+  const weightEl = document.querySelector("#wat-weight");
+  const presentAltEl = document.querySelector("#wat-present-fl");
+  const presentWindEl = document.querySelector("#wat-present-wind");
+  const newAltEl = document.querySelector("#wat-new-fl");
+  const newWindEl = document.querySelector("#wat-new-wind");
+  if (!form || !out || !weightEl || !presentAltEl || !presentWindEl || !newAltEl || !newWindEl) return;
+
+  const autoRecalculate = (sourceEl = null) => {
+    if (shouldDeferLiveSubmitForInput(sourceEl)) return;
+    form.dispatchEvent(new Event("submit"));
+  };
+
+  [weightEl, presentAltEl, presentWindEl, newAltEl, newWindEl].forEach((el) => bindCommittedInput(el, autoRecalculate));
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (
+      missingFieldsBanner(out, [
+        fieldIsBlank(weightEl.value) ? "Weight" : "",
+        fieldIsBlank(presentAltEl.value) ? "Present Alt/FL" : "",
+        fieldIsBlank(presentWindEl.value) ? "Present Wind" : "",
+        fieldIsBlank(newAltEl.value) ? "New Alt/FL" : "",
+        fieldIsBlank(newWindEl.value) ? "New Wind" : "",
+      ])
+    ) {
+      return;
+    }
+
+    try {
+      const result = calculateWindAltitudeTrade({
+        weightT: parseNum(weightEl.value),
+        presentAltInput: presentAltEl.value,
+        presentWindKt: parseNum(presentWindEl.value),
+        newAltInput: newAltEl.value,
+        newWindKt: parseNum(newWindEl.value),
+      });
+
+      weightEl.value = formatInputNumber(result.usedWeightT, 1);
+      presentAltEl.value = formatInputNumber(result.presentUsedTableFl * 10, 0);
+      presentWindEl.value = formatInputNumber(result.presentWindKt, 0);
+      newAltEl.value = formatInputNumber(result.newUsedTableFl * 10, 0);
+      newWindEl.value = formatInputNumber(result.newWindKt, 0);
+
+      const rows = [
+        ...(result.warnings.length ? [["__warning__", `Input warning: ${result.warnings.join(" | ")}`]] : []),
+        ["Present Wind Factor", `${format(result.presentFactorKt, 1)} kt`],
+        ["New Wind Factor", `${format(result.newFactorKt, 1)} kt`],
+        ["Wind Factor Difference (New - Present)", `${format(result.windFactorDifferenceKt, 1)} kt`],
+        ["Break-Even Wind at New Altitude", `${format(result.breakEvenWindKt, 1)} kt`],
+        ["Actual New Wind", `${format(result.newWindKt, 1)} kt`],
+        ["Wind Margin vs Break-Even", `${format(result.windMarginKt, 1)} kt`],
+        ["Trade Recommendation", result.recommendation],
+      ];
+
+      renderRows(out, rows);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  autoRecalculate();
+}
+
 function calculateTakeoffCrosswindLimit(takeoffWeightT, takeoffCgPctMac, rccKey) {
   if (!Number.isFinite(takeoffWeightT) || takeoffWeightT <= 0) {
     throw new Error("Takeoff weight must be > 0");
@@ -7649,6 +7862,7 @@ bindHolding();
 bindLoseTime();
 bindFixTimeAtFix();
 bindConversion();
+bindWindAltitudeTrade();
 bindTakeoffCrosswindLimit();
 bindCrewOxygenEndurance();
 bindGlobalSettings();
