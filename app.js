@@ -6861,11 +6861,11 @@ function lookupWindTradeFactor(tableFlInput, weightT) {
   };
 }
 
-function calculateWindAltitudeTrade({ weightT, presentAltInput, presentWindKt, newAltInput, newWindKt }) {
+function calculateWindAltitudeTrade({ weightT, presentAltInput, presentWindKt, newAltInput }) {
   if (!Number.isFinite(weightT) || weightT <= 0) {
     throw new Error("Weight must be > 0");
   }
-  if (!Number.isFinite(presentWindKt) || !Number.isFinite(newWindKt)) {
+  if (!Number.isFinite(presentWindKt)) {
     throw new Error("Wind is invalid");
   }
 
@@ -6889,16 +6889,6 @@ function calculateWindAltitudeTrade({ weightT, presentAltInput, presentWindKt, n
 
   const windFactorDifferenceKt = proposed.factor - present.factor;
   const breakEvenWindKt = presentWindKt + windFactorDifferenceKt;
-  const windMarginKt = newWindKt - breakEvenWindKt;
-
-  let recommendation;
-  if (windMarginKt > 0.5) {
-    recommendation = `New altitude is favorable by ${format(windMarginKt, 1)} kt equivalent`;
-  } else if (windMarginKt < -0.5) {
-    recommendation = `Present altitude remains better by ${format(Math.abs(windMarginKt), 1)} kt equivalent`;
-  } else {
-    recommendation = "New altitude is effectively break-even";
-  }
 
   return {
     requestedWeightT: weightT,
@@ -6908,13 +6898,10 @@ function calculateWindAltitudeTrade({ weightT, presentAltInput, presentWindKt, n
     newRequestedTableFl: newTableFl,
     newUsedTableFl: proposed.usedTableFl,
     presentWindKt,
-    newWindKt,
     presentFactorKt: present.factor,
     newFactorKt: proposed.factor,
     windFactorDifferenceKt,
     breakEvenWindKt,
-    windMarginKt,
-    recommendation,
     warnings,
   };
 }
@@ -6926,15 +6913,14 @@ function bindWindAltitudeTrade() {
   const presentAltEl = document.querySelector("#wat-present-fl");
   const presentWindEl = document.querySelector("#wat-present-wind");
   const newAltEl = document.querySelector("#wat-new-fl");
-  const newWindEl = document.querySelector("#wat-new-wind");
-  if (!form || !out || !weightEl || !presentAltEl || !presentWindEl || !newAltEl || !newWindEl) return;
+  if (!form || !out || !weightEl || !presentAltEl || !presentWindEl || !newAltEl) return;
 
   const autoRecalculate = (sourceEl = null) => {
     if (shouldDeferLiveSubmitForInput(sourceEl)) return;
     form.dispatchEvent(new Event("submit"));
   };
 
-  [weightEl, presentAltEl, presentWindEl, newAltEl, newWindEl].forEach((el) => bindCommittedInput(el, autoRecalculate));
+  [weightEl, presentAltEl, presentWindEl, newAltEl].forEach((el) => bindCommittedInput(el, autoRecalculate));
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -6944,7 +6930,6 @@ function bindWindAltitudeTrade() {
         fieldIsBlank(presentAltEl.value) ? "Present Alt/FL" : "",
         fieldIsBlank(presentWindEl.value) ? "Present Wind" : "",
         fieldIsBlank(newAltEl.value) ? "New Alt/FL" : "",
-        fieldIsBlank(newWindEl.value) ? "New Wind" : "",
       ])
     ) {
       return;
@@ -6956,14 +6941,12 @@ function bindWindAltitudeTrade() {
         presentAltInput: presentAltEl.value,
         presentWindKt: parseNum(presentWindEl.value),
         newAltInput: newAltEl.value,
-        newWindKt: parseNum(newWindEl.value),
       });
 
       weightEl.value = formatInputNumber(result.usedWeightT, 1);
       presentAltEl.value = formatInputNumber(result.presentUsedTableFl * 10, 0);
       presentWindEl.value = formatInputNumber(result.presentWindKt, 0);
       newAltEl.value = formatInputNumber(result.newUsedTableFl * 10, 0);
-      newWindEl.value = formatInputNumber(result.newWindKt, 0);
 
       const rows = [
         ...(result.warnings.length ? [["__warning__", `Input warning: ${result.warnings.join(" | ")}`]] : []),
@@ -6971,9 +6954,6 @@ function bindWindAltitudeTrade() {
         ["New Wind Factor", `${format(result.newFactorKt, 1)} kt`],
         ["Wind Factor Difference (New - Present)", `${format(result.windFactorDifferenceKt, 1)} kt`],
         ["Break-Even Wind at New Altitude", `${format(result.breakEvenWindKt, 1)} kt`],
-        ["Actual New Wind", `${format(result.newWindKt, 1)} kt`],
-        ["Wind Margin vs Break-Even", `${format(result.windMarginKt, 1)} kt`],
-        ["Trade Recommendation", result.recommendation],
       ];
 
       renderRows(out, rows);
