@@ -305,6 +305,10 @@ body {
   align-items: end;
 }
 
+#crew-oxygen-form {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .scenario-toolbar {
   grid-column: 1 / -1;
   display: grid;
@@ -948,6 +952,10 @@ button:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  #crew-oxygen-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .grid button,
   .grid-subheading,
   .global-setting-field {
@@ -999,6 +1007,10 @@ button:hover {
   }
 
   .grid {
+    grid-template-columns: 1fr;
+  }
+
+  #crew-oxygen-form {
     grid-template-columns: 1fr;
   }
 
