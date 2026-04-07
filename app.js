@@ -7605,18 +7605,7 @@ function bindCrewOxygenEndurance() {
       });
 
       const rows = [
-        ["Regulator Mode", regulatorMode === "100pct" ? "100%" : "Normal"],
-        ["Oxygen Pressure", `${format(pressurePsi, 0)} PSI`],
-        ["Cylinder Temperature", `${format(cylinderTempC, 0)} °C`],
-        ["Corrected Pressure @ 21°C", `${format(r.correctedPressurePsi, 0)} PSI`],
-        ["Cabin Altitude Used", `${format(r.cabinAltFt, 0)} ft`],
         ["Oxygen Available", `${format(r.availableL, 0)} L`],
-        ["__spacer__", ""],
-        ["Initial 10-Min Descent Allowance", `${format(r.initialDescentLiters, 0)} L`],
-        ["Ongoing Base Rate @ 14,000 ft", `${format(r.baseRatePerHour, 0)} L/hr`],
-        ["Table 3 Adjustment", `${format(r.table3RatePerMin, 0)} L/min`],
-        ["Ongoing Rate at Cabin Altitude", `${format(r.ongoingRatePerHour, 0)} L/hr`],
-        ["Oxygen After Initial 10 Minutes", `${format(r.litersAfterInitialDescent, 0)} L`],
         ["__spacer__", ""],
         ["Endurance", formatMinutes(r.totalEnduranceMin)],
         ...(r.pressureClampedHigh
