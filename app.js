@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.11.9";
+const APP_VERSION = "v7.12.0";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
@@ -79,6 +79,25 @@ const WIND_ALT_TRADE_FACTORS_BY_FL = {
   41: [35, 13, 1, 4, 27, 76, NaN, NaN, NaN],
   43: [21, 3, 2, 24, 77, NaN, NaN, NaN, NaN],
 };
+const COLD_TEMP_TEMP_AXIS_C = [-50, -40, -30, -20, -10, 0];
+const COLD_TEMP_HEIGHT_AXIS_FT = [200, 300, 400, 500, 600, 700, 800, 900, 1000, 1500, 2000, 3000];
+const COLD_TEMP_CORR_FT = [
+  [60, 90, 120, 150, 180, 210, 240, 270, 300, 450, 590, 890], // -50
+  [50, 80, 100, 120, 150, 170, 190, 220, 240, 360, 480, 720], // -40
+  [40, 60, 80, 100, 120, 140, 150, 170, 190, 280, 380, 570], // -30
+  [30, 50, 60, 70, 90, 100, 120, 130, 140, 210, 280, 420], // -20
+  [20, 30, 40, 50, 60, 70, 80, 90, 100, 150, 200, 290], // -10
+  [20, 20, 30, 30, 40, 40, 50, 50, 60, 90, 120, 170], // 0
+];
+const COLD_TEMP_HEIGHT_AXIS_M = [60, 90, 120, 150, 180, 210, 240, 270, 300, 450, 600, 900];
+const COLD_TEMP_CORR_M = [
+  [20, 30, 40, 45, 55, 65, 75, 80, 90, 135, 180, 270], // -50
+  [15, 25, 30, 40, 45, 50, 60, 65, 75, 110, 145, 220], // -40
+  [15, 20, 25, 30, 35, 40, 45, 55, 60, 85, 115, 170], // -30
+  [10, 15, 20, 25, 25, 30, 35, 40, 45, 65, 85, 130], // -20
+  [10, 10, 15, 15, 20, 20, 25, 30, 30, 45, 60, 90], // -10
+  [5, 5, 10, 10, 10, 15, 15, 15, 20, 25, 35, 50], // 0
+];
 const GO_AROUND_ANTI_ICE_ADJUSTMENT = {
   engineOn: { oatLe8: -0.1, oatGt8Le20: -0.2 },
   engineWingOn: { oatLe8: -0.1, oatGt8Le20: -0.2 },
@@ -3862,6 +3881,7 @@ function recalculateAllForms() {
     "#lose-time-form",
     "#conversion-form",
     "#wind-trade-form",
+    "#cold-temp-form",
     "#takeoff-crosswind-form",
   ].forEach((selector) => {
     const form = document.querySelector(selector);
@@ -6992,6 +7012,118 @@ function bindWindAltitudeTrade() {
   autoRecalculate();
 }
 
+function calculateColdTempCorrection({ unit, height, airportTempC }) {
+  if (!["ft", "m"].includes(unit)) {
+    throw new Error("Units are invalid");
+  }
+  if (!Number.isFinite(height) || height <= 0) {
+    throw new Error("Height above altimeter source must be > 0");
+  }
+  if (!Number.isFinite(airportTempC)) {
+    throw new Error("Airport temperature is invalid");
+  }
+
+  const heightAxis = unit === "ft" ? COLD_TEMP_HEIGHT_AXIS_FT : COLD_TEMP_HEIGHT_AXIS_M;
+  const grid = unit === "ft" ? COLD_TEMP_CORR_FT : COLD_TEMP_CORR_M;
+  const minHeight = heightAxis[0];
+  const maxHeight = heightAxis[heightAxis.length - 1];
+  const minTemp = COLD_TEMP_TEMP_AXIS_C[0];
+  const maxTemp = COLD_TEMP_TEMP_AXIS_C[COLD_TEMP_TEMP_AXIS_C.length - 1];
+
+  const usedHeight = clamp(height, minHeight, maxHeight);
+  const usedTemp = clamp(airportTempC, minTemp, maxTemp);
+  const warnings = [];
+  if (usedHeight !== height) {
+    warnings.push(`Height clamped to ${format(usedHeight, 0)} ${unit}`);
+  }
+  if (usedTemp !== airportTempC) {
+    warnings.push(`Airport temperature clamped to ${format(usedTemp, 1)} °C`);
+  }
+
+  const tempInterpolatedByHeight = heightAxis.map((_, columnIndex) =>
+    linear(
+      COLD_TEMP_TEMP_AXIS_C,
+      grid.map((row) => row[columnIndex]),
+      usedTemp,
+    ),
+  );
+  const correction = linear(heightAxis, tempInterpolatedByHeight, usedHeight);
+
+  return {
+    unit,
+    requestedHeight: height,
+    usedHeight,
+    requestedTempC: airportTempC,
+    usedTempC: usedTemp,
+    correction,
+    correctedAltitude: usedHeight + correction,
+    warnings,
+  };
+}
+
+function bindColdTempCorrection() {
+  const form = document.querySelector("#cold-temp-form");
+  const out = document.querySelector("#cold-temp-out");
+  const unitEl = document.querySelector("#cold-temp-unit");
+  const heightEl = document.querySelector("#cold-temp-height");
+  const tempEl = document.querySelector("#cold-temp-temp");
+  if (!form || !out || !unitEl || !heightEl || !tempEl) return;
+
+  const syncModeButtons = bindModePills(form, unitEl);
+  if (syncModeButtons) syncModeButtons();
+
+  const autoRecalculate = (sourceEl = null) => {
+    if (shouldDeferLiveSubmitForInput(sourceEl)) return;
+    form.dispatchEvent(new Event("submit"));
+  };
+
+  bindCommittedInput(heightEl, autoRecalculate);
+  bindCommittedInput(tempEl, autoRecalculate);
+  unitEl.addEventListener("change", () => {
+    if (unitEl.value === "m" && (fieldIsBlank(heightEl.value) || Number(heightEl.value) === 1000)) {
+      heightEl.value = "300";
+    } else if (unitEl.value === "ft" && (fieldIsBlank(heightEl.value) || Number(heightEl.value) === 300)) {
+      heightEl.value = "1000";
+    }
+    if (syncModeButtons) syncModeButtons();
+    autoRecalculate(unitEl);
+  });
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (
+      missingFieldsBanner(out, [
+        fieldIsBlank(heightEl.value) ? "Height Above Altimeter Source" : "",
+        fieldIsBlank(tempEl.value) ? "Airport Temp" : "",
+      ])
+    ) {
+      return;
+    }
+
+    try {
+      const result = calculateColdTempCorrection({
+        unit: String(unitEl.value || "ft"),
+        height: parseNum(heightEl.value),
+        airportTempC: parseNum(tempEl.value),
+      });
+
+      heightEl.value = formatInputNumber(result.usedHeight, 0);
+      tempEl.value = formatInputNumber(result.usedTempC, 1);
+
+      const rows = [
+        ...(result.warnings.length ? [["__warning__", `Input warning: ${result.warnings.join(" | ")}`]] : []),
+        ["Altitude Correction", `${format(result.correction, 0)} ${result.unit}`],
+        ["Corrected Altitude", `${format(result.correctedAltitude, 0)} ${result.unit}`],
+      ];
+      renderRows(out, rows);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  autoRecalculate();
+}
+
 function calculateTakeoffCrosswindLimit(takeoffWeightT, takeoffCgPctMac, rccKey) {
   if (!Number.isFinite(takeoffWeightT) || takeoffWeightT <= 0) {
     throw new Error("Takeoff weight must be > 0");
@@ -7870,6 +8002,7 @@ bindLoseTime();
 bindFixTimeAtFix();
 bindConversion();
 bindWindAltitudeTrade();
+bindColdTempCorrection();
 bindTakeoffCrosswindLimit();
 bindCrewOxygenEndurance();
 bindGlobalSettings();

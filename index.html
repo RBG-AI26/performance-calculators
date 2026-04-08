@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.11.9</p>
+        <p class="app-version" id="app-version">Version v7.12.0</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -736,6 +736,32 @@
           </label>
         </form>
         <div id="wind-trade-out" class="results"></div>
+      </section>
+
+      <section class="panel" data-family="altitude" aria-labelledby="cold-temp-heading">
+        <h2 id="cold-temp-heading">Cold Weather Temperature Corrections</h2>
+        <form id="cold-temp-form" class="grid">
+          <label class="trip-weight-mode-field">
+            Units
+            <select id="cold-temp-unit" class="sr-only">
+              <option value="ft" selected>ft</option>
+              <option value="m">m</option>
+            </select>
+            <div class="dpa-mode-pills" data-mode-for="cold-temp-unit">
+              <button type="button" data-mode-value="ft">ft</button>
+              <button type="button" data-mode-value="m">m</button>
+            </div>
+          </label>
+          <label>
+            Height Above Altimeter Source
+            <input type="number" step="1" min="0" id="cold-temp-height" value="1000" />
+          </label>
+          <label>
+            Airport Temp (°C)
+            <input type="number" step="0.1" id="cold-temp-temp" value="-20" />
+          </label>
+        </form>
+        <div id="cold-temp-out" class="results"></div>
       </section>
 
       <section class="panel" aria-labelledby="takeoff-crosswind-heading">
