@@ -6687,6 +6687,7 @@ function bindGoAround() {
   const speedEl = document.querySelector("#go-around-speed");
   const antiIceEl = document.querySelector("#go-around-anti-ice");
   const icingPenaltyEl = document.querySelector("#go-around-icing-penalty");
+  const gsEl = document.querySelector("#go-around-gs");
   let suppressAutoSubmit = false;
 
   const autoRecalculate = (sourceEl = null) => {
@@ -6740,6 +6741,7 @@ function bindGoAround() {
   [oatEl, elevationEl].forEach((el) => {
     bindCommittedInput(el, autoRecalculate);
   });
+  bindCommittedInput(gsEl, autoRecalculate);
   [speedEl, antiIceEl, icingPenaltyEl].forEach((el) => {
     el.addEventListener("change", () => autoRecalculate(el));
   });
@@ -6764,6 +6766,9 @@ function bindGoAround() {
       const elevationText = elevationEl.value.trim();
       const weightText = weightEl.value.trim();
       const targetText = targetGradientEl.value.trim();
+
+      const gsText = gsEl.value.trim();
+      const groundSpeedKt = gsText === "" ? NaN : parseNum(gsText);
 
       const result = calculateGoAroundGradient({
         flapSelection: flapEl.value,
@@ -6801,6 +6806,9 @@ function bindGoAround() {
         ["Anti-Ice Adjustment", `${format(result.antiIceAdjustmentPct, 1)} %`],
         ["Icing Penalty", `${format(result.icingPenaltyPct, 1)} %`],
         ["Final Go-Around Gradient", `${format(result.finalGradientPct, 1)} %`],
+        ...(Number.isFinite(groundSpeedKt) && groundSpeedKt > 0
+          ? [["Required Rate of Climb", `${format((result.finalGradientPct / 100) * groundSpeedKt * 101.269, 0)} ft/min  (at ${format(groundSpeedKt, 0)} kt GS)`]]
+          : []),
       ];
       renderRows(out, rows);
     } catch (error) {
