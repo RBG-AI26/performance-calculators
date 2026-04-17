@@ -6742,6 +6742,7 @@ function bindGoAround() {
     bindCommittedInput(el, autoRecalculate);
   });
   bindCommittedInput(gsEl, autoRecalculate);
+  gsEl.addEventListener("input", () => autoRecalculate(gsEl));
   [speedEl, antiIceEl, icingPenaltyEl].forEach((el) => {
     el.addEventListener("change", () => autoRecalculate(el));
   });
