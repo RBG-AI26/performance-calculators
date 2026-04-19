@@ -60,62 +60,62 @@
 
 :root[data-theme="night"] {
   color-scheme: dark;
-  --bg: #0a1118;
-  --panel: #121b24;
-  --panel-border: #263544;
-  --text: #d6e0ea;
-  --muted: #8ea0b1;
-  --accent: #3d738e;
-  --accent-1: #9d6420;
-  --accent-2: #b37424;
-  --bg-radial-1: rgba(64, 105, 132, 0.16);
-  --bg-radial-2: rgba(163, 111, 41, 0.1);
-  --bg-gradient-top: #0b1218;
-  --bg-gradient-mid: #0d151c;
-  --bg-gradient-bottom: #0a1016;
-  --hero-gradient: linear-gradient(120deg, #0d1d29, #163042 58%, #23445a);
-  --hero-text: #edf3f8;
-  --heading: #d9e6ef;
-  --label: #c7d4de;
-  --subtle-border: #233341;
-  --input-bg: #0f1820;
-  --input-border: #345064;
-  --input-focus-outline: rgba(111, 156, 186, 0.18);
-  --input-focus-border: #6b8ea8;
-  --disabled-bg: #16212a;
-  --disabled-text: #718494;
+  --bg: #0f1a18;
+  --panel: #1a2825;
+  --panel-border: #2a3d39;
+  --text: #e8f0ee;
+  --muted: #8aa8a3;
+  --accent: #2ec4b6;
+  --accent-1: #2ec4b6;
+  --accent-2: #1fa898;
+  --bg-radial-1: rgba(46, 196, 182, 0.12);
+  --bg-radial-2: rgba(232, 93, 79, 0.09);
+  --bg-gradient-top: #0f1a18;
+  --bg-gradient-mid: #111f1c;
+  --bg-gradient-bottom: #0f1a18;
+  --hero-gradient: linear-gradient(120deg, #13211e, #1a2825 58%, #1f312e);
+  --hero-text: #e8f0ee;
+  --heading: #e8f0ee;
+  --label: #d4e2df;
+  --subtle-border: #2a3d39;
+  --input-bg: #1f312e;
+  --input-border: #3a524d;
+  --input-focus-outline: rgba(46, 196, 182, 0.22);
+  --input-focus-border: #2ec4b6;
+  --disabled-bg: #172422;
+  --disabled-text: #78948f;
   --panel-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
-  --toggle-bg: #16222c;
-  --toggle-border: #365064;
-  --toggle-text: #c8d7e3;
-  --toggle-hover-bg: #20303c;
-  --secondary-bg: #15222d;
-  --secondary-border: #365064;
-  --secondary-text: #c9d7e1;
-  --secondary-hover-bg: #1a2a35;
-  --scenario-bg: linear-gradient(180deg, #121d26 0%, #101922 100%);
-  --scenario-title: #8da2b4;
-  --success: #9fc8a0;
-  --error-text: #df9b94;
-  --note-bg: #101a22;
-  --entry-bg: #0f1820;
-  --entry-border: #253748;
-  --pill-bg: #18242e;
-  --pill-border: #33495a;
-  --pill-text: #93a7b8;
-  --pill-active-bg: #223341;
-  --pill-active-text: #f0f5f8;
+  --toggle-bg: #1f312e;
+  --toggle-border: #3a524d;
+  --toggle-text: #cfe2df;
+  --toggle-hover-bg: #263a36;
+  --secondary-bg: #1f312e;
+  --secondary-border: #3a524d;
+  --secondary-text: #d7e6e3;
+  --secondary-hover-bg: #263a36;
+  --scenario-bg: linear-gradient(180deg, #1a2825 0%, #172422 100%);
+  --scenario-title: #8aa8a3;
+  --success: #4ecb8a;
+  --error-text: #f08080;
+  --note-bg: #172422;
+  --entry-bg: #1f312e;
+  --entry-border: #2a3d39;
+  --pill-bg: #1f312e;
+  --pill-border: #3a524d;
+  --pill-text: #94ada8;
+  --pill-active-bg: #263a36;
+  --pill-active-text: #e8f0ee;
   --pill-active-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-  --results-border: #263645;
-  --result-emphasis-bg: #17232d;
-  --result-emphasis-border: #355063;
-  --result-emphasis-text: #b7d2e3;
-  --section-title: #8fa5b6;
-  --warning-text: #d2b17c;
-  --warning-bg: #241d13;
-  --warning-border: #654a24;
-  --auto-derived-text: #788a98;
-  --theme-color: #163042;
+  --results-border: #2a3d39;
+  --result-emphasis-bg: #1f312e;
+  --result-emphasis-border: #3a524d;
+  --result-emphasis-text: #bfe7e1;
+  --section-title: #91aaa5;
+  --warning-text: #e8b84b;
+  --warning-bg: #2a2010;
+  --warning-border: #7a5e1a;
+  --auto-derived-text: #7f9994;
+  --theme-color: #0f1a18;
 }
 
 * {
@@ -234,27 +234,27 @@ body {
 }
 
 :root[data-theme="night"] .panel[data-family="fuel"] {
-  --family-accent: #9b6e32;
-  --family-border: #5b4730;
-  --family-wash: rgba(155, 110, 50, 0.1);
+  --family-accent: #c09545;
+  --family-border: #5c4d2f;
+  --family-wash: rgba(192, 149, 69, 0.09);
 }
 
 :root[data-theme="night"] .panel[data-family="altitude"] {
-  --family-accent: #4f8f89;
-  --family-border: #345b58;
-  --family-wash: rgba(79, 143, 137, 0.09);
+  --family-accent: #2ec4b6;
+  --family-border: #3a524d;
+  --family-wash: rgba(46, 196, 182, 0.08);
 }
 
 :root[data-theme="night"] .panel[data-family="holding"] {
-  --family-accent: #788d48;
-  --family-border: #44512a;
-  --family-wash: rgba(120, 141, 72, 0.08);
+  --family-accent: #7fb069;
+  --family-border: #46583a;
+  --family-wash: rgba(127, 176, 105, 0.08);
 }
 
 :root[data-theme="night"] .panel[data-family="engine-out"] {
-  --family-accent: #956154;
-  --family-border: #563c34;
-  --family-wash: rgba(149, 97, 84, 0.09);
+  --family-accent: #e85d4f;
+  --family-border: #60413c;
+  --family-wash: rgba(232, 93, 79, 0.08);
 }
 
 .panel h2 {
@@ -643,6 +643,101 @@ input.auto-derived {
   max-width: 420px;
 }
 
+.field-label {
+  font-weight: 700;
+  color: var(--label);
+}
+
+.theme-setting-field {
+  display: grid;
+  gap: 0.35rem;
+  align-content: end;
+}
+
+.theme-toggle {
+  position: relative;
+  display: inline-flex;
+  width: 52px;
+  height: 28px;
+  min-height: 28px;
+  flex-shrink: 0;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: none;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 14px;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.theme-toggle:hover {
+  filter: none;
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--input-focus-outline);
+  outline-offset: 3px;
+}
+
+.theme-toggle-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  background: #f5c842;
+  transition: background 200ms ease;
+}
+
+:root[data-theme="night"] .theme-toggle-track {
+  background: #2a2a2a;
+}
+
+.theme-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--panel);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  transition: left 200ms ease, background 200ms ease;
+}
+
+:root[data-theme="night"] .theme-toggle-thumb {
+  left: 27px;
+}
+
+.theme-toggle-icon {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  line-height: 1;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+.theme-toggle-icon-sun {
+  left: 6px;
+  opacity: 1;
+}
+
+.theme-toggle-icon-moon {
+  right: 5px;
+  opacity: 0.32;
+}
+
+:root[data-theme="night"] .theme-toggle-icon-sun {
+  opacity: 0.3;
+}
+
+:root[data-theme="night"] .theme-toggle-icon-moon {
+  opacity: 1;
+}
+
 input,
 select,
 button {
@@ -683,6 +778,20 @@ button {
 
 button:hover {
   filter: brightness(0.97);
+}
+
+button.theme-toggle {
+  width: 52px;
+  height: 28px;
+  min-height: 28px;
+  border: none;
+  border-radius: 14px;
+  padding: 0;
+  background: none;
+}
+
+button.theme-toggle:hover {
+  filter: none;
 }
 
 .panel-toggle {

@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.12.0";
+const APP_VERSION = "v7.12.1";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
@@ -468,6 +468,14 @@ function applyTheme(mode = readThemeMode()) {
   const themeEl = document.querySelector("#theme-mode");
   if (themeEl && themeEl.value !== normalized) {
     themeEl.value = normalized;
+  }
+
+  const themeToggle = document.querySelector("#theme-toggle");
+  if (themeToggle) {
+    const isNight = appliedTheme === "night";
+    themeToggle.setAttribute("aria-pressed", String(isNight));
+    themeToggle.setAttribute("aria-label", isNight ? "Switch to day mode" : "Switch to night mode");
+    themeToggle.title = isNight ? "Switch to day mode" : "Switch to night mode";
   }
 
   const themeColorMeta = document.querySelector('meta[name="theme-color"]');
@@ -7263,6 +7271,7 @@ function bindTakeoffCrosswindLimit() {
 function bindGlobalSettings() {
   const globalPerfEl = document.querySelector("#global-perf-adjust");
   const themeEl = document.querySelector("#theme-mode");
+  const themeToggle = document.querySelector("#theme-toggle");
   if (!globalPerfEl) return;
 
   globalPerfEl.addEventListener("change", recalculateAllForms);
@@ -7273,6 +7282,14 @@ function bindGlobalSettings() {
       const mode = sanitizeThemeMode(themeEl.value);
       writeThemeMode(mode);
       applyTheme(mode);
+    });
+  }
+
+  if (themeToggle) {
+    themeToggle.addEventListener("click", () => {
+      const nextMode = resolveAppliedTheme(readThemeMode()) === "night" ? "day" : "night";
+      writeThemeMode(nextMode);
+      applyTheme(nextMode);
     });
   }
 }
