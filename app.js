@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.12.3";
+const APP_VERSION = "v7.12.4";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
@@ -4815,6 +4815,47 @@ function installClickToClearInputs() {
   );
 }
 
+function isEnterAdvanceTarget(el) {
+  if (!(el instanceof HTMLInputElement)) return false;
+  if (!isClickToClearInput(el)) return false;
+  return el.getClientRects().length > 0 && window.getComputedStyle(el).visibility !== "hidden";
+}
+
+function isEnterAdvanceFocusable(el) {
+  if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLSelectElement)) return false;
+  if (el.disabled || el.readOnly || el.tabIndex < 0) return false;
+  if (el.classList.contains("sr-only") || el.getAttribute("aria-hidden") === "true") return false;
+  if (el.closest("[hidden]")) return false;
+  if (el instanceof HTMLInputElement && !isClickToClearInput(el)) return false;
+  return el.getClientRects().length > 0 && window.getComputedStyle(el).visibility !== "hidden";
+}
+
+function focusNextEntryField(currentEl) {
+  const fields = Array.from(document.querySelectorAll("input, select")).filter(isEnterAdvanceFocusable);
+  const currentIndex = fields.indexOf(currentEl);
+  if (currentIndex < 0) return;
+  const nextField = fields[currentIndex + 1];
+  if (nextField) {
+    nextField.focus();
+  } else {
+    currentEl.blur();
+  }
+}
+
+function installEnterToAdvanceFields() {
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key !== "Enter" || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+      const target = event.target;
+      if (!isEnterAdvanceTarget(target)) return;
+      event.preventDefault();
+      setTimeout(() => focusNextEntryField(target), 0);
+    },
+    true,
+  );
+}
+
 function installCollapsiblePanels() {
   const collapseState = (() => {
     try {
@@ -8040,6 +8081,7 @@ installModuleReordering();
 restorePersistedInputState();
 installInputStatePersistence();
 installClickToClearInputs();
+installEnterToAdvanceFields();
 bindLinkedStartWeightFields();
 bindTripFuel();
 bindDpaCalculator();
