@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.12.1";
+const APP_VERSION = "v7.12.3";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
@@ -34,6 +34,7 @@ const T0 = 288.15;
 const P0 = 101325;
 const FT_TO_M = 0.3048;
 const M_TO_FT = 1 / FT_TO_M;
+const FT_PER_NM = 6076.12;
 const MPS_TO_KT = 1.94384449244;
 const KT_TO_MPS = 0.51444444444;
 const EARTH_RADIUS_M = 6356766;
@@ -1434,6 +1435,26 @@ function calculateGoAroundGradient({
     finalGradientPct,
     warnings,
   };
+}
+
+function gradientPctToFtPerNm(gradientPct) {
+  return Number.isFinite(gradientPct) ? (gradientPct / 100) * FT_PER_NM : NaN;
+}
+
+function gradientFtPerNmToPct(gradientFtPerNm) {
+  return Number.isFinite(gradientFtPerNm) ? (gradientFtPerNm / FT_PER_NM) * 100 : NaN;
+}
+
+function parseGoAroundTargetGradient(value) {
+  const numericValue = parseNum(value);
+  if (!Number.isFinite(numericValue)) return { targetGradientPct: NaN, inputUnit: "" };
+  if (numericValue <= 20) {
+    return { targetGradientPct: numericValue, inputUnit: "%" };
+  }
+  if (numericValue >= 50) {
+    return { targetGradientPct: gradientFtPerNmToPct(numericValue), inputUnit: "ft/NM" };
+  }
+  throw new Error("Target Gradient must be <= 20 for %, or >= 50 for ft/NM");
 }
 
 function buildFuelRequirement({ flightFuelKg, landingWeightT, additionalHoldingMin, arrivalAllowanceMin = 0, perfAdjust }) {
@@ -6685,8 +6706,6 @@ function bindConversion() {
 function bindGoAround() {
   const form = document.querySelector("#go-around-form");
   const out = document.querySelector("#go-around-out");
-  if (!form || !out) return;
-
   const flapEl = document.querySelector("#go-around-flap");
   const oatEl = document.querySelector("#go-around-oat");
   const elevationEl = document.querySelector("#go-around-elevation");
@@ -6696,6 +6715,7 @@ function bindGoAround() {
   const antiIceEl = document.querySelector("#go-around-anti-ice");
   const icingPenaltyEl = document.querySelector("#go-around-icing-penalty");
   const gsEl = document.querySelector("#go-around-gs");
+  if (!form || !out || !flapEl || !oatEl || !elevationEl || !weightEl || !targetGradientEl || !speedEl || !antiIceEl || !icingPenaltyEl || !gsEl) return;
   let suppressAutoSubmit = false;
 
   const autoRecalculate = (sourceEl = null) => {
@@ -6775,6 +6795,7 @@ function bindGoAround() {
       const elevationText = elevationEl.value.trim();
       const weightText = weightEl.value.trim();
       const targetText = targetGradientEl.value.trim();
+      const targetGradient = targetText === "" ? { targetGradientPct: NaN, inputUnit: "" } : parseGoAroundTargetGradient(targetText);
 
       const gsText = gsEl.value.trim();
       const groundSpeedKt = gsText === "" ? NaN : parseNum(gsText);
@@ -6784,7 +6805,7 @@ function bindGoAround() {
         oatCInput: oatText === "" ? NaN : parseNum(oatText),
         elevationFtInput: elevationText === "" ? NaN : parseNum(elevationText),
         landingWeightTInput: weightText === "" ? NaN : parseNum(weightText),
-        targetGradientPctInput: targetText === "" ? NaN : parseNum(targetText),
+        targetGradientPctInput: targetGradient.targetGradientPct,
         speedLabel: speedEl.value,
         antiIceMode: antiIceEl.value,
         applyIcingPenalty: icingPenaltyEl.value === "on",
@@ -6795,7 +6816,10 @@ function bindGoAround() {
       if (result.mode === "weight") {
         weightEl.value = formatInputNumber(result.inputsUsed.landingWeightT, 1);
       } else {
-        targetGradientEl.value = formatInputNumber(result.targetGradientPct, 1);
+        targetGradientEl.value =
+          targetGradient.inputUnit === "ft/NM"
+            ? formatInputNumber(gradientPctToFtPerNm(result.targetGradientPct), 0)
+            : formatInputNumber(result.targetGradientPct, 1);
       }
 
       const rows = [
@@ -6805,7 +6829,7 @@ function bindGoAround() {
         ["Anti-Ice Band Applied", result.antiIceBand],
         ...(result.mode === "target"
           ? [
-              ["Target Gradient", `${format(result.targetGradientPct, 1)} %`],
+              ["Target Gradient", `${format(result.targetGradientPct, 1)} % / ${format(gradientPctToFtPerNm(result.targetGradientPct), 0)} ft/NM`],
               ["Required Weight", `${format(result.inputsUsed.landingWeightT, 1)} t`],
             ]
           : []),
@@ -6814,7 +6838,7 @@ function bindGoAround() {
         ["Speed Adjustment", `${format(result.speedAdjustmentPct, 1)} %`],
         ["Anti-Ice Adjustment", `${format(result.antiIceAdjustmentPct, 1)} %`],
         ["Icing Penalty", `${format(result.icingPenaltyPct, 1)} %`],
-        ["Final Go-Around Gradient", `${format(result.finalGradientPct, 1)} %`],
+        ["Final Go-Around Gradient", `${format(result.finalGradientPct, 1)} % / ${format(gradientPctToFtPerNm(result.finalGradientPct), 0)} ft/NM`],
         ...(Number.isFinite(groundSpeedKt) && groundSpeedKt > 0
           ? [["Required Rate of Climb", `${format((result.finalGradientPct / 100) * groundSpeedKt * 101.269, 0)} ft/min  (at ${format(groundSpeedKt, 0)} kt GS)`]]
           : []),
