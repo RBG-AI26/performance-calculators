@@ -1959,6 +1959,35 @@ function getDiversionHighDescentNm(altitudeFt) {
 // Derive ANM from GNM and wind for the High diversion band.
 // Uses the groundToAir table directly when GNM is within range, otherwise
 // extrapolates using the ratio at the table boundary (ratio is stable across distances).
+// Weight adjustment interpolation that correctly handles reference fuels below the
+// axis minimum. The adjustment table starts at 5,000 kg reference fuel, but short
+// diversions produce lower reference fuels. The adjustment scales linearly from
+// zero at zero reference fuel to the first axis value — physically correct since
+// zero fuel requires zero adjustment.
+function diversionFuelAdjustment(tableSet, referenceFuel1000Kg, weightUsed) {
+  const refAxis = tableSet.fuelAdjustment.referenceFuelAxis1000Kg;
+  const axisMin = refAxis[0];
+  if (referenceFuel1000Kg >= axisMin) {
+    // Within or above axis range — standard bilinear interpolation.
+    return bilinearClamped(
+      refAxis,
+      tableSet.fuelAdjustment.weightAxisT,
+      tableSet.fuelAdjustment.adjustment1000KgValues,
+      referenceFuel1000Kg,
+      weightUsed,
+    );
+  }
+  // Below axis minimum — interpolate linearly from 0 at ref=0 to adj[0] at ref=axisMin.
+  const adjAtMin = bilinearClamped(
+    refAxis,
+    tableSet.fuelAdjustment.weightAxisT,
+    tableSet.fuelAdjustment.adjustment1000KgValues,
+    axisMin,
+    weightUsed,
+  );
+  return adjAtMin * (referenceFuel1000Kg / axisMin);
+}
+
 function diversionHighGnmToAnm(gnm, windUsed, tableSet) {
   if (Math.abs(windUsed) < 1e-9) return gnm;
   const gnmAxis = tableSet.groundToAir.gnmAxis;
@@ -2059,30 +2088,29 @@ function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdj
     anmForLookup,
     altitudeUsed,
   );
-  const adjustment1000Kg = bilinearClamped(
-    tableSet.fuelAdjustment.referenceFuelAxis1000Kg,
-    weightAxis,
-    tableSet.fuelAdjustment.adjustment1000KgValues,
-    referenceFuel1000Kg,
-    weightUsed,
-  );
+  const adjustment1000Kg = diversionFuelAdjustment(tableSet, referenceFuel1000Kg, weightUsed);
 
   const adjustedFuelBeforePerf1000Kg = referenceFuel1000Kg + adjustment1000Kg;
   const adjustedFuelAt400Kg = adjustedFuelBeforePerf1000Kg * 1000 * (1 + perfAdjust);
 
   let adjustedFuelKg, timeMinutes;
   if (anm < anmMin && bandKey === "high") {
-    // Descent boundary ANM — convert descent GNM to ANM using same wind ratio.
-    const descentGnm = getDiversionHighDescentNm(altitudeUsed);
-    const descentAnm = diversionHighGnmToAnm(descentGnm, windUsed, tableSet);
-    // Cruise ANM range: from descent boundary up to 400 ANM.
-    const cruiseRange = Math.max(1, anmMin - descentAnm);
-    // Cruise ANM for this trip: from descent boundary up to the trip ANM.
-    const cruiseAnm   = Math.max(0, anm - descentAnm);
-    // Fraction of the full cruise range flown on this trip.
-    const fraction    = cruiseAnm / cruiseRange;
-    adjustedFuelKg = adjustedFuelAt400Kg * fraction;
-    timeMinutes    = timeMinutesAt400    * fraction;
+    // Derive the rate (kg/ANM and min/ANM) from the table between 400 and 800 ANM,
+    // using correctly weight-adjusted fuel at both points. This rate is consistent
+    // with the table's own data and varies correctly with altitude and weight.
+    const anmStep = anmMin + 400; // 800 ANM
+    const refStep = bilinearClamped(anmAxis, altitudeAxisFt, tableSet.fuelTime.fuel1000KgValues, anmStep, altitudeUsed);
+    const adjStep = diversionFuelAdjustment(tableSet, refStep, weightUsed);
+    const fuelAtStep = (refStep + adjStep) * 1000 * (1 + perfAdjust);
+    const timeAtStep = bilinearClamped(anmAxis, altitudeAxisFt, tableSet.fuelTime.timeMinutesValues, anmStep, altitudeUsed);
+
+    const fuelRateKgPerAnm  = (fuelAtStep - adjustedFuelAt400Kg) / 400;
+    const timeRateMinPerAnm = (timeAtStep - timeMinutesAt400) / 400;
+
+    // Subtract the shortfall from the 400 ANM anchor.
+    const shortfall = anmMin - anm;
+    adjustedFuelKg = adjustedFuelAt400Kg - shortfall * fuelRateKgPerAnm;
+    timeMinutes    = timeMinutesAt400    - shortfall * timeRateMinPerAnm;
   } else {
     adjustedFuelKg = adjustedFuelAt400Kg;
     timeMinutes    = timeMinutesAt400;
