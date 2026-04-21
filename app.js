@@ -2021,22 +2021,29 @@ function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdj
       : bilinearClamped(gnmAxis, windAxis, tableSet.groundToAir.values, gnmUsed, windUsed);
   }
 
-  // For the High band, enforce minimum ANM (top-of-descent distance).
+  // For the High band, enforce minimum distance using GNM — the physical ground
+  // distance must exceed the top-of-descent distance regardless of wind.
+  // Wind affects ANM (air miles) but not the actual ground distance flown.
   if (bandKey === "high") {
-    const descentAnm = getDiversionHighDescentNm(altitudeUsed);
-    if (anm <= descentAnm) {
+    const descentGnm = getDiversionHighDescentNm(altitudeUsed);
+    if (gnm <= descentGnm) {
       throw new Error(
         `Diversion distance too short for altitude — entire trip is descent at FL${format(altitudeUsed / 100, 0)} ` +
-        `(minimum ${format(Math.ceil(descentAnm), 0)} ANM)`
+        `(minimum ${format(Math.ceil(descentGnm), 0)} NM)`
       );
     }
   }
 
   // Lookup fuel and time from the fuelTime table.
-  // If ANM is below the table minimum (High band only), extrapolate downward using
-  // the table's own rate at the boundary — this ensures full continuity at the boundary.
+  // Lookup fuel and time from the fuelTime table.
+  // For ANM >= table minimum (400): read directly.
+  // For ANM < 400 (High band only): interpolate between two known points:
+  //   - Upper anchor: 400 ANM table value (weight-adjusted).
+  //   - Lower anchor: descent boundary ANM, where fuel = 0 (all descent, no cruise).
+  // Fuel scales linearly between these two points based on the fraction of cruise ANM.
+  // Near the 400 ANM boundary the table rate is used directly for continuity;
+  // further from the boundary proportional scaling dominates.
   const anmForLookup = Math.max(anm, anmMin);
-  const shortfall    = Math.max(0, anmMin - anm); // ANM below table minimum, High band only
 
   const referenceFuel1000Kg = bilinearClamped(
     anmAxis,
@@ -2045,7 +2052,7 @@ function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdj
     anmForLookup,
     altitudeUsed,
   );
-  const timeMinutesAtAnchor = bilinearClamped(
+  const timeMinutesAt400 = bilinearClamped(
     anmAxis,
     altitudeAxisFt,
     tableSet.fuelTime.timeMinutesValues,
@@ -2061,24 +2068,24 @@ function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdj
   );
 
   const adjustedFuelBeforePerf1000Kg = referenceFuel1000Kg + adjustment1000Kg;
-  const adjustedFuelAtAnchorKg = adjustedFuelBeforePerf1000Kg * 1000 * (1 + perfAdjust);
+  const adjustedFuelAt400Kg = adjustedFuelBeforePerf1000Kg * 1000 * (1 + perfAdjust);
 
-  // Table-derived rates at the ANM boundary — used for extrapolation below anmMin.
-  // Derived from a 1 ANM step just above the boundary so the extrapolation is
-  // perfectly continuous with the table above it.
   let adjustedFuelKg, timeMinutes;
-  if (shortfall > 0) {
-    const stepAnm  = anmMin + 1;
-    const stepRef  = bilinearClamped(anmAxis, altitudeAxisFt, tableSet.fuelTime.fuel1000KgValues, stepAnm, altitudeUsed);
-    const stepAdj  = bilinearClamped(tableSet.fuelAdjustment.referenceFuelAxis1000Kg, weightAxis, tableSet.fuelAdjustment.adjustment1000KgValues, stepRef, weightUsed);
-    const stepTime = bilinearClamped(anmAxis, altitudeAxisFt, tableSet.fuelTime.timeMinutesValues, stepAnm, altitudeUsed);
-    const fuelRateKgPerAnm  = (stepRef + stepAdj) * 1000 * (1 + perfAdjust) - adjustedFuelAtAnchorKg;
-    const timeRateMinPerAnm = stepTime - timeMinutesAtAnchor;
-    adjustedFuelKg = adjustedFuelAtAnchorKg - shortfall * Math.abs(fuelRateKgPerAnm);
-    timeMinutes    = timeMinutesAtAnchor    - shortfall * Math.abs(timeRateMinPerAnm);
+  if (anm < anmMin && bandKey === "high") {
+    // Descent boundary ANM — convert descent GNM to ANM using same wind ratio.
+    const descentGnm = getDiversionHighDescentNm(altitudeUsed);
+    const descentAnm = diversionHighGnmToAnm(descentGnm, windUsed, tableSet);
+    // Cruise ANM range: from descent boundary up to 400 ANM.
+    const cruiseRange = Math.max(1, anmMin - descentAnm);
+    // Cruise ANM for this trip: from descent boundary up to the trip ANM.
+    const cruiseAnm   = Math.max(0, anm - descentAnm);
+    // Fraction of the full cruise range flown on this trip.
+    const fraction    = cruiseAnm / cruiseRange;
+    adjustedFuelKg = adjustedFuelAt400Kg * fraction;
+    timeMinutes    = timeMinutesAt400    * fraction;
   } else {
-    adjustedFuelKg = adjustedFuelAtAnchorKg;
-    timeMinutes    = timeMinutesAtAnchor;
+    adjustedFuelKg = adjustedFuelAt400Kg;
+    timeMinutes    = timeMinutesAt400;
   }
 
   if (adjustedFuelKg <= 0) {
