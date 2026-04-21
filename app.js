@@ -1980,10 +1980,13 @@ function diversionHighShortLegFromLrc(gnm, wind, altitudeFt, weightT, perfAdjust
   if (altitudeUsed !== altitudeFt) warnings.push(`Altitude clamped to ${format(altitudeUsed, 0)} ft`);
   if (weightUsed !== weightT) warnings.push(`Start weight clamped to ${format(weightUsed, 1)} t`);
 
-  // Step 1: derive ANM from GNM using TAS and GS from the LRC cruise table.
-  const flightLevel  = altitudeUsed / 100;
-  const cruiseState  = getLrcCruiseState(weightUsed, flightLevel, windUsed, perfAdjust);
-  const anm          = gnm * (cruiseState.tas / cruiseState.gs);
+  // Step 1: derive ANM from GNM using the groundToAir wind ratio at the 400 GNM boundary.
+  // This is the same conversion the normal table path uses, ensuring continuity at 400 GNM.
+  // The ratio is essentially constant across all distances in the table.
+  const anmRatio = Math.abs(windUsed) < 1e-9
+    ? 1.0
+    : bilinearClamped(tableSet.groundToAir.gnmAxis, windAxis, tableSet.groundToAir.values, 400, windUsed) / 400;
+  const anm = gnm * anmRatio;
 
   // Step 2: if ANM >= 400 the normal table handles this — signal the caller to use it.
   if (anm >= tableSet.fuelTime.anmAxis[0]) {
@@ -1999,39 +2002,44 @@ function diversionHighShortLegFromLrc(gnm, wind, altitudeFt, weightT, perfAdjust
     );
   }
 
-  // Step 3: anchor at 400 ANM — read weight-adjusted fuel and time from the table.
-  const referenceFuel400_1000Kg = bilinearClamped(
+  // Step 3: anchor at the ANM equivalent of 400 GNM with wind applied.
+  // This is exactly what the normal table path computes at 400 GNM, ensuring continuity.
+  // anmRatio already computed above: anmAnchor = 400 * anmRatio.
+  const anmAnchor = 400 * anmRatio;
+  const flightLevel = altitudeUsed / 100;
+  const cruiseState = getLrcCruiseState(weightUsed, flightLevel, windUsed, perfAdjust);
+  const referenceFuelAnchor_1000Kg = bilinearClamped(
     tableSet.fuelTime.anmAxis,
     tableSet.fuelTime.altitudeAxisFt,
     tableSet.fuelTime.fuel1000KgValues,
-    400,
+    anmAnchor,
     altitudeUsed,
   );
-  const tableTime400Min = bilinearClamped(
+  const tableTimeAnchorMin = bilinearClamped(
     tableSet.fuelTime.anmAxis,
     tableSet.fuelTime.altitudeAxisFt,
     tableSet.fuelTime.timeMinutesValues,
-    400,
+    anmAnchor,
     altitudeUsed,
   );
-  const adjustment400_1000Kg = bilinearClamped(
+  const adjustmentAnchor_1000Kg = bilinearClamped(
     tableSet.fuelAdjustment.referenceFuelAxis1000Kg,
     weightAxis,
     tableSet.fuelAdjustment.adjustment1000KgValues,
-    referenceFuel400_1000Kg,
+    referenceFuelAnchor_1000Kg,
     weightUsed,
   );
-  const adjustedFuel400Kg = (referenceFuel400_1000Kg + adjustment400_1000Kg) * 1000 * (1 + perfAdjust);
+  const adjustedFuelAnchorKg = (referenceFuelAnchor_1000Kg + adjustmentAnchor_1000Kg) * 1000 * (1 + perfAdjust);
 
-  // Step 4: subtract the ANM shortfall using the LRC cruise rate (per ANM, not per GNM).
-  const fuelPerAnm  = cruiseState.fuelHr / cruiseState.tas;   // kg per ANM
-  const timePerAnm  = 60 / cruiseState.tas;                   // min per ANM
-  const anmShortfall  = 400 - anm;
+  // Step 4: subtract the ANM shortfall (anmAnchor - anm) using the LRC cruise rate per ANM.
+  const fuelPerAnm    = cruiseState.fuelHr / cruiseState.tas;   // kg per ANM
+  const timePerAnm    = 60 / cruiseState.tas;                   // min per ANM
+  const anmShortfall  = anmAnchor - anm;
   const fuelSavingKg  = anmShortfall * fuelPerAnm;
   const timeSavingMin = anmShortfall * timePerAnm;
 
-  const adjustedFuelKg = adjustedFuel400Kg - fuelSavingKg;
-  const timeMinutes    = tableTime400Min - timeSavingMin;
+  const adjustedFuelKg = adjustedFuelAnchorKg - fuelSavingKg;
+  const timeMinutes    = tableTimeAnchorMin - timeSavingMin;
 
   if (adjustedFuelKg <= 0) {
     throw new Error("Derived fuel is zero or negative — distance may be too short for this altitude");
@@ -2051,9 +2059,9 @@ function diversionHighShortLegFromLrc(gnm, wind, altitudeFt, weightT, perfAdjust
 
   return {
     anm,
-    referenceFuel1000Kg: referenceFuel400_1000Kg,
-    adjustment1000Kg: adjustment400_1000Kg,
-    adjustedFuelBeforePerf1000Kg: (referenceFuel400_1000Kg + adjustment400_1000Kg),
+    referenceFuel1000Kg: referenceFuelAnchor_1000Kg,
+    adjustment1000Kg: adjustmentAnchor_1000Kg,
+    adjustedFuelBeforePerf1000Kg: (referenceFuelAnchor_1000Kg + adjustmentAnchor_1000Kg),
     adjustedFuel1000Kg: adjustedFuelKg / 1000,
     adjustedFuelKg,
     reserveCalcWeightT,
