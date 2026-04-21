@@ -375,8 +375,15 @@ function getDiversionBandRanges(bandKey) {
   const altitudeAxis = tableSet.fuelTime?.altitudeAxisFt || [];
   const weightAxis = tableSet.fuelAdjustment?.weightAxisT || [];
 
+  // For the High band, distances below the table minimum are handled via the LRC cruise
+  // table down to the top-of-descent distance. Report the minimum descent distance across
+  // the altitude range as the effective lower limit for the range hint.
+  const effectiveMinGnm = bandKey === "high"
+    ? Math.min(...DIVERSION_HIGH_DESCENT_DISTANCE_NM)
+    : gnmAxis[0];
+
   return {
-    minGnm: gnmAxis[0],
+    minGnm: effectiveMinGnm,
     maxGnm: gnmAxis[gnmAxis.length - 1],
     minWindKt: windAxis[0],
     maxWindKt: windAxis[windAxis.length - 1],
@@ -1940,6 +1947,135 @@ function solveTripFuelLandingWeightFromCurrentWeight(gnm, wind, currentWeightT, 
   };
 }
 
+// Descent distance/time table for .85/310/250 KIAS descent profile.
+// Used to determine the minimum viable GNM for the High-band short-leg extension
+// (any distance at or below the top-of-descent distance is entirely a descent).
+const DIVERSION_HIGH_DESCENT_ALT_AXIS_FT = [25000, 27000, 29000, 31000, 33000, 35000, 37000, 39000, 41000, 43000];
+const DIVERSION_HIGH_DESCENT_DISTANCE_NM = [94, 101, 109, 116, 123, 129, 135, 142, 150, 156];
+const DIVERSION_HIGH_DESCENT_TIME_MIN    = [20, 21, 22, 23, 23, 24, 25, 26, 27, 28];
+
+function getDiversionHighDescentNm(altitudeFt) {
+  return linearClamped(DIVERSION_HIGH_DESCENT_ALT_AXIS_FT, DIVERSION_HIGH_DESCENT_DISTANCE_NM, altitudeFt);
+}
+
+// Compute High-band diversion fuel/time for GNM below the table minimum (400 NM).
+// Anchors to the weight-adjusted 400 NM table value then subtracts the fuel and time
+// for the cruise miles that are no longer flown, using the LRC cruise table rate.
+// The descent segment is fixed by altitude and does not change between trips.
+// Valid range: top-of-descent distance (from altitude) < gnm < 400 NM.
+function diversionHighShortLegFromLrc(gnm, wind, altitudeFt, weightT, perfAdjust, additionalHoldingMin, arrivalAllowanceMin) {
+  const tableSet = getDiversionBandTable("high");
+
+  const windAxis     = tableSet.groundToAir.windAxis;
+  const altitudeAxisFt = tableSet.fuelTime.altitudeAxisFt;
+  const weightAxis   = tableSet.fuelAdjustment.weightAxisT;
+
+  const windUsed     = clampToAxis(windAxis, wind);
+  const altitudeUsed = clampToAxis(altitudeAxisFt, altitudeFt);
+  const weightUsed   = clampToAxis(weightAxis, weightT);
+
+  // Enforce minimum GNM — must be above the top-of-descent distance for this altitude.
+  const descentNm = getDiversionHighDescentNm(altitudeUsed);
+  if (gnm <= descentNm) {
+    throw new Error(
+      `Diversion distance too short for altitude — entire trip is descent at FL${format(altitudeUsed / 100, 0)} ` +
+      `(minimum ${format(descentNm, 0)} NM)`
+    );
+  }
+
+  const warnings = [];
+  if (windUsed !== wind) warnings.push(`Wind clamped to ${format(windUsed, 0)} kt`);
+  if (altitudeUsed !== altitudeFt) warnings.push(`Altitude clamped to ${format(altitudeUsed, 0)} ft`);
+  if (weightUsed !== weightT) warnings.push(`Start weight clamped to ${format(weightUsed, 1)} t`);
+
+  // Step 1: weight-adjusted fuel and time from the 400 NM table anchor.
+  const referenceFuel400_1000Kg = bilinearClamped(
+    tableSet.fuelTime.anmAxis,
+    tableSet.fuelTime.altitudeAxisFt,
+    tableSet.fuelTime.fuel1000KgValues,
+    400,
+    altitudeUsed,
+  );
+  const tableTime400Min = bilinearClamped(
+    tableSet.fuelTime.anmAxis,
+    tableSet.fuelTime.altitudeAxisFt,
+    tableSet.fuelTime.timeMinutesValues,
+    400,
+    altitudeUsed,
+  );
+  const adjustment400_1000Kg = bilinearClamped(
+    tableSet.fuelAdjustment.referenceFuelAxis1000Kg,
+    weightAxis,
+    tableSet.fuelAdjustment.adjustment1000KgValues,
+    referenceFuel400_1000Kg,
+    weightUsed,
+  );
+  const adjustedFuel400Kg = (referenceFuel400_1000Kg + adjustment400_1000Kg) * 1000 * (1 + perfAdjust);
+  const time400Min = tableTime400Min;
+
+  // Step 2: LRC cruise rate at the given altitude and weight, accounting for wind.
+  const flightLevel = altitudeUsed / 100;
+  const cruiseState = getLrcCruiseState(weightUsed, flightLevel, windUsed, perfAdjust);
+  const fuelPerCruiseNm = cruiseState.fuelHr / cruiseState.gs;   // kg per GNM
+  const timePerCruiseNm = 60 / cruiseState.gs;                   // min per GNM
+
+  // Step 3: subtract the cruise miles no longer flown.
+  // The descent distance is fixed — only the cruise portion changes.
+  const cruiseReduction = 400 - gnm;
+  const fuelSavingKg    = cruiseReduction * fuelPerCruiseNm;
+  const timeSavingMin   = cruiseReduction * timePerCruiseNm;
+
+  const adjustedFuelKg  = adjustedFuel400Kg - fuelSavingKg;
+  const timeMinutes     = time400Min - timeSavingMin;
+
+  if (adjustedFuelKg <= 0) {
+    throw new Error("Derived fuel is zero or negative — distance may be too short for this altitude");
+  }
+
+  // ANM: scale GNM by the wind ratio at the 400 NM boundary (ratio is essentially
+  // constant across distances in this table).
+  const anmAt400 = Math.abs(windUsed) < 1e-9
+    ? 400
+    : bilinearClamped(tableSet.groundToAir.gnmAxis, windAxis, tableSet.groundToAir.values, 400, windUsed);
+  const anm = gnm * (anmAt400 / 400);
+
+  const reserveCalcWeightT = weightUsed - adjustedFuelKg / 1000 - FIXED_ALLOWANCE_KG / 1000;
+  if (!Number.isFinite(reserveCalcWeightT) || reserveCalcWeightT <= 0) {
+    throw new Error("Computed reserve-calculation weight is invalid (check start weight/fuel)");
+  }
+  const fuelBuildUp = buildFuelRequirement({
+    flightFuelKg: adjustedFuelKg,
+    landingWeightT: reserveCalcWeightT,
+    additionalHoldingMin,
+    arrivalAllowanceMin,
+    perfAdjust,
+  });
+
+  return {
+    anm,
+    referenceFuel1000Kg: referenceFuel400_1000Kg,
+    adjustment1000Kg: adjustment400_1000Kg,
+    adjustedFuelBeforePerf1000Kg: (referenceFuel400_1000Kg + adjustment400_1000Kg),
+    adjustedFuel1000Kg: adjustedFuelKg / 1000,
+    adjustedFuelKg,
+    reserveCalcWeightT,
+    frfKg: fuelBuildUp.frfKg,
+    contingencyKg: fuelBuildUp.contingencyKg,
+    extraHoldingKg: fuelBuildUp.extraHoldingKg,
+    arrivalAllowanceKg: fuelBuildUp.arrivalAllowanceKg,
+    fixedAllowanceKg: fuelBuildUp.fixedAllowanceKg,
+    totalFuelKg: fuelBuildUp.totalFuelKg,
+    timeMinutes,
+    warnings,
+    usedInputs: {
+      gnm,
+      wind: windUsed,
+      altitudeFt: altitudeUsed,
+      weightT: weightUsed,
+    },
+  };
+}
+
 function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdjust, additionalHoldingMin, arrivalAllowanceMin = 0) {
   const tableSet = getDiversionBandTable(bandKey);
   if (!tableSet) {
@@ -1950,6 +2086,12 @@ function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdj
   }
   if (!Number.isFinite(perfAdjust)) {
     throw new Error("Global flight plan performance adjustment is invalid");
+  }
+
+  // For the High band, distances below the table minimum (400 NM) are handled using
+  // the LRC cruise table rather than clamping.
+  if (bandKey === "high" && gnm < tableSet.groundToAir.gnmAxis[0]) {
+    return diversionHighShortLegFromLrc(gnm, wind, altitudeFt, weightT, perfAdjust, additionalHoldingMin, arrivalAllowanceMin);
   }
 
   const gnmAxis = tableSet.groundToAir.gnmAxis;
