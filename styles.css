@@ -268,6 +268,19 @@ body {
   gap: 0.5rem;
 }
 
+.panel-sort-handle {
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.sortable-chosen .panel-sort-handle,
+.sortable-drag .panel-sort-handle,
+.panel-sort-handle:active {
+  cursor: grabbing;
+}
+
 .panel-header-actions {
   display: inline-flex;
   align-items: center;
@@ -795,53 +808,43 @@ button.theme-toggle:hover {
 }
 
 .panel-toggle {
-  min-height: 1.8rem;
-  min-width: 1.8rem;
-  width: 1.8rem;
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  min-height: 42px;
   padding: 0;
-  border: 1px solid var(--toggle-border);
-  border-radius: 6px;
-  background: var(--toggle-bg);
-  color: var(--toggle-text);
-  font-size: 0.95rem;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--muted);
+  opacity: 0.5;
   line-height: 1;
+  transition: opacity 150ms ease;
 }
 
 .panel-toggle:hover {
   filter: none;
-  background: var(--toggle-hover-bg);
+  background: transparent;
+  opacity: 1;
 }
 
 .panel-toggle:focus-visible {
   outline: 2px solid rgba(0, 92, 153, 0.25);
 }
 
-.panel-drag-handle {
-  min-height: 1.8rem;
-  min-width: 1.8rem;
-  width: 1.8rem;
-  padding: 0;
-  border: 1px solid var(--toggle-border);
-  border-radius: 6px;
-  background: var(--toggle-bg);
-  color: var(--toggle-text);
-  font-size: 1rem;
-  line-height: 1;
-  cursor: grab;
-  touch-action: none;
+.panel-toggle span {
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.16s ease;
 }
 
-.panel-drag-handle:hover {
-  filter: none;
-  background: var(--toggle-hover-bg);
-}
-
-.panel-drag-handle:focus-visible {
-  outline: 2px solid rgba(0, 92, 153, 0.25);
-}
-
-.panel-drag-handle:active {
-  cursor: grabbing;
+.panel-toggle[aria-expanded="true"] span {
+  transform: rotate(45deg);
 }
 
 .sortable-ghost {

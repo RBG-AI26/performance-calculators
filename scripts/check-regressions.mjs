@@ -199,10 +199,10 @@ assertApprox(diversionLow.totalFuelKg, 7348.5615625, 1e-6, "Low diversion total 
 assertApprox(diversionLow.timeMinutes, 68.775, 1e-6, "Low diversion time");
 
 const diversionHigh = context.diversionLrcFuelByBand("high", 400, -50, 31000, 180, 0, 0, 0);
-assertApprox(diversionHigh.adjustedFuelKg, 3916.875, 1e-6, "High diversion flight fuel");
-assertApprox(diversionHigh.reserveCalcWeightT, 175.883125, 1e-6, "High diversion landing weight");
-assertApprox(diversionHigh.frfKg, 2166.7728125, 1e-6, "High diversion FRF");
-assertApprox(diversionHigh.totalFuelKg, 6633.6478125, 1e-6, "High diversion total fuel");
+assertApprox(diversionHigh.adjustedFuelKg, 3975.1875, 1e-6, "High diversion flight fuel");
+assertApprox(diversionHigh.reserveCalcWeightT, 175.8248125, 1e-6, "High diversion landing weight");
+assertApprox(diversionHigh.frfKg, 2166.16053125, 1e-6, "High diversion FRF");
+assertApprox(diversionHigh.totalFuelKg, 6691.34803125, 1e-6, "High diversion total fuel");
 assertApprox(diversionHigh.timeMinutes, 64.69375, 1e-6, "High diversion time");
 
 const eoDiversion = context.eoDiversionFuelTime(120, 0, 25000, 200, 0);

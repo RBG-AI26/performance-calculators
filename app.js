@@ -8,7 +8,7 @@ const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.12.4";
+const APP_VERSION = "v7.12.6";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
@@ -5003,7 +5003,6 @@ function installCollapsiblePanels() {
     panel.classList.toggle("panel-collapsed", !open);
     toggle.setAttribute("aria-expanded", open ? "true" : "false");
     toggle.setAttribute("aria-label", open ? "Collapse module" : "Expand module");
-    toggle.textContent = open ? "−" : "+";
     collapseState[panelId] = open;
   };
 
@@ -5011,6 +5010,7 @@ function installCollapsiblePanels() {
   Array.from(document.querySelectorAll("section.panel")).forEach((panel, index) => {
     const heading = panel.querySelector(":scope > h2");
     if (!heading) return;
+    heading.classList.add("panel-sort-handle");
     const actionsEl =
       heading.querySelector(".panel-header-actions") ||
       (() => {
@@ -5023,22 +5023,17 @@ function installCollapsiblePanels() {
     const panelId = panel.id || heading.id || `module-${index + 1}`;
     const isOpen = panelId in collapseState ? !!collapseState[panelId] : true;
 
-    if (moduleStack && panel.parentElement === moduleStack && !actionsEl.querySelector(".panel-drag-handle")) {
-      const dragHandle = document.createElement("button");
-      dragHandle.type = "button";
-      dragHandle.className = "panel-drag-handle";
-      dragHandle.setAttribute("aria-label", "Reorder module");
-      dragHandle.setAttribute("title", "Drag to reorder");
-      dragHandle.textContent = "⋮⋮";
-      actionsEl.appendChild(dragHandle);
-    }
+    actionsEl.querySelector(".panel-drag-handle")?.remove();
 
     let toggle = actionsEl.querySelector(".panel-toggle");
     if (!toggle) {
       toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "panel-toggle";
+      toggle.innerHTML = '<span aria-hidden="true"></span>';
       actionsEl.appendChild(toggle);
+    } else if (!toggle.querySelector("span")) {
+      toggle.innerHTML = '<span aria-hidden="true"></span>';
     }
 
     updatePanelState(panel, toggle, panelId, isOpen);
@@ -5112,7 +5107,11 @@ function installModuleReordering() {
   if (typeof window.Sortable === "function") {
     window.Sortable.create(moduleStack, {
       animation: 160,
-      handle: ".panel-drag-handle",
+      handle: "section.panel > h2",
+      filter: ".panel-toggle, .panel-toggle *, button, input, select, textarea, a, label",
+      preventOnFilter: false,
+      delay: 180,
+      delayOnTouchOnly: false,
       draggable: "section.panel",
       forceFallback: true,
       fallbackOnBody: true,
