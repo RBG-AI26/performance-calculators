@@ -4,7 +4,7 @@ This app reproduces your Excel calculators in a browser UI and is configured as 
 
 - Short Trip Fuel
 - Long Range Cruise
-  - Includes FRF (30 min hold at 1500 ft using landing weight), contingency (5% min 350 max 1200), and user-entered additional holding minutes
+  - Includes FRF (30 min hold at 1500 ft using landing weight), contingency (5% min 5 min hold at 20000 ft max 1200), and user-entered additional holding minutes
 - Diversion (LRC)
   - GNM to ANM conversion with headwind/tailwind table
   - Fuel/time interpolation by ANM and altitude

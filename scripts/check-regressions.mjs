@@ -135,8 +135,8 @@ loadApp(context);
 const trip = context.calculateTripFuel(599, 60, 172.9, 0, 0, 0);
 assertApprox(trip.flightFuelKg, 6528.4, 1e-6, "Trip fuel flight fuel");
 assertApprox(trip.frfKg, 2135.45, 1e-6, "Trip fuel FRF");
-assertApprox(trip.contingencyKg, 350, 1e-9, "Trip fuel contingency");
-assertApprox(trip.totalFuelKg, 9213.85, 1e-6, "Trip fuel total fuel");
+assertApprox(trip.contingencyKg, 338.65, 1e-9, "Trip fuel contingency");
+assertApprox(trip.totalFuelKg, 9202.5, 1e-6, "Trip fuel total fuel");
 assertApprox(trip.timeMinutes, 74.8968, 1e-6, "Trip fuel time");
 assert.equal(trip.suggestedAltFt, 39710, "Trip fuel suggested altitude");
 
@@ -195,14 +195,16 @@ const diversionLow = context.diversionLrcFuelByBand("low", 400, -50, 28000, 180,
 assertApprox(diversionLow.adjustedFuelKg, 4639.375, 1e-6, "Low diversion flight fuel");
 assertApprox(diversionLow.reserveCalcWeightT, 175.160625, 1e-6, "Low diversion landing weight");
 assertApprox(diversionLow.frfKg, 2159.1865625, 1e-6, "Low diversion FRF");
-assertApprox(diversionLow.totalFuelKg, 7348.5615625, 1e-6, "Low diversion total fuel");
+assertApprox(diversionLow.contingencyKg, 342.7944791666667, 1e-6, "Low diversion contingency");
+assertApprox(diversionLow.totalFuelKg, 7341.356041666668, 1e-6, "Low diversion total fuel");
 assertApprox(diversionLow.timeMinutes, 68.775, 1e-6, "Low diversion time");
 
 const diversionHigh = context.diversionLrcFuelByBand("high", 400, -50, 31000, 180, 0, 0, 0);
 assertApprox(diversionHigh.adjustedFuelKg, 3975.1875, 1e-6, "High diversion flight fuel");
 assertApprox(diversionHigh.reserveCalcWeightT, 175.8248125, 1e-6, "High diversion landing weight");
 assertApprox(diversionHigh.frfKg, 2166.16053125, 1e-6, "High diversion FRF");
-assertApprox(diversionHigh.totalFuelKg, 6691.34803125, 1e-6, "High diversion total fuel");
+assertApprox(diversionHigh.contingencyKg, 344.01215625, 1e-6, "High diversion contingency");
+assertApprox(diversionHigh.totalFuelKg, 6685.3601874999995, 1e-6, "High diversion total fuel");
 assertApprox(diversionHigh.timeMinutes, 64.69375, 1e-6, "High diversion time");
 
 const eoDiversion = context.eoDiversionFuelTime(120, 0, 25000, 200, 0);

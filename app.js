@@ -46,10 +46,10 @@ const DEG_PER_RAD = 180 / Math.PI;
 const RAD_PER_DEG = Math.PI / 180;
 const DEFAULT_HOLD_BANK_DEG = 25;
 const FIXED_ALLOWANCE_KG = 200;
-const MIN_CONTINGENCY_KG = 350;
 const MAX_CONTINGENCY_KG = 1200;
 const FRF_HOLD_ALTITUDE_FT = 1500;
 const ADDITIONAL_HOLD_ALTITUDE_FT = 20000;
+const CONTINGENCY_MIN_HOLD_MIN = 5;
 const ENROUTE_HOLD_SPEED_FUEL_FACTOR = 0.95;
 const LOSE_TIME_CLIMB_RATE_FPM = 1000;
 const LOSE_TIME_DESCENT_RATE_FPM = 1000;
@@ -1500,7 +1500,11 @@ function buildFuelRequirement({ flightFuelKg, landingWeightT, additionalHoldingM
   const frfKg = frfFuelHrKg * 0.5;
   const extraHoldingKg = additionalHoldFuelHrKg * (additionalHoldingMin / 60);
   const arrivalAllowanceKg = frfFuelHrKg * (arrivalAllowanceMin / 60);
-  const contingencyKg = clamp(flightFuelKg * 0.05, MIN_CONTINGENCY_KG, MAX_CONTINGENCY_KG);
+  const contingencyKg = calculateContingencyFuelKg({
+    flightFuelKg,
+    holdingWeightT: landingWeightT,
+    perfAdjust,
+  });
   const totalFuelKg = flightFuelKg + frfKg + contingencyKg + extraHoldingKg + arrivalAllowanceKg + FIXED_ALLOWANCE_KG;
 
   return {
@@ -1832,7 +1836,11 @@ function calculateTripFuelEnhanced({
 }) {
   const core = calculateTripFuelBase(gnm, wind, weight, perfAdjust);
   const frfAutoKg = getHoldFuelFlowKgHr(weight, FRF_HOLD_ALTITUDE_FT, perfAdjust) * 0.5;
-  const contingencyAutoKg = clamp(core.flightFuelKg * 0.05, MIN_CONTINGENCY_KG, MAX_CONTINGENCY_KG);
+  const contingencyAutoKg = calculateContingencyFuelKg({
+    flightFuelKg: core.flightFuelKg,
+    holdingWeightT: weight,
+    perfAdjust,
+  });
   const resolvedFrfKg = Number.isFinite(frfKg) ? frfKg : frfAutoKg;
   const resolvedContingencyKg = Number.isFinite(contingencyKg) ? contingencyKg : contingencyAutoKg;
   const totalFuelKg =
@@ -4838,6 +4846,13 @@ function getHoldFuelFlowKgHr(weightT, altitudeFt, perfAdjust) {
   return lookupHoldMetric(weightT, altitudeFt, "ffEng") * (1 + perfAdjust) * 2;
 }
 
+function calculateContingencyFuelKg({ flightFuelKg, holdingWeightT, perfAdjust }) {
+  const minimumContingencyKg =
+    getHoldFuelFlowKgHr(holdingWeightT, ADDITIONAL_HOLD_ALTITUDE_FT, perfAdjust) *
+    (CONTINGENCY_MIN_HOLD_MIN / 60);
+  return clamp(flightFuelKg * 0.05, minimumContingencyKg, MAX_CONTINGENCY_KG);
+}
+
 function resolveKgInput(label, el) {
   const value = parseNumOrDefault(el.value, 0);
   if (!Number.isFinite(value)) {
@@ -5614,7 +5629,11 @@ function bindDpaCalculator() {
         valueEl: diversionHoldEl,
         minuteFuelFlowKgHr: hold20000FuelFlowKgHr,
       });
-      const contKg = clamp(ffKg * 0.05, MIN_CONTINGENCY_KG, MAX_CONTINGENCY_KG);
+      const contKg = calculateContingencyFuelKg({
+        flightFuelKg: ffKg,
+        holdingWeightT: weightT,
+        perfAdjust,
+      });
       const frfKg = resolveMixedEntryKg({
         label: "FRF",
         modeEl: frfModeEl,
@@ -6100,7 +6119,7 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
         ["Flight Fuel", `${format(result.adjustedFuel1000Kg * 1000, 0)} kg`],
         ["Est Landing Weight", `${format(result.reserveCalcWeightT, 1)} t`],
         ["FRF (30 min hold @ 1500 ft)", `${format(result.frfKg, 0)} kg`],
-        ["Contingency Fuel (5%, min 350, max 1200)", `${format(result.contingencyKg, 0)} kg`],
+        ["Contingency Fuel (5%, min 5 min hold @ 20000 ft, max 1200)", `${format(result.contingencyKg, 0)} kg`],
         [`Additional Holding Fuel (${format(holdingMin, 1)} min)`, `${format(result.extraHoldingKg, 0)} kg`],
         [`Arrival Allowance (${format(arrivalAllowanceMin, 1)} min)`, `${format(result.arrivalAllowanceKg, 0)} kg`],
         ["Approach Fuel", `${format(result.fixedAllowanceKg, 0)} kg`],
