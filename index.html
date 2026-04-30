@@ -453,6 +453,18 @@
             Arrival Allowance (min)
             <input type="number" step="1" id="div-low-arrival-min" value="0" />
           </label>
+          <div class="dpa-entry-row dpa-entry-row-frf diversion-contingency-row">
+            <label class="dpa-entry-label" for="div-low-cont">Contingency Fuel</label>
+            <select id="div-low-cont-mode" class="sr-only">
+              <option value="auto" selected>auto</option>
+              <option value="kg">kg</option>
+            </select>
+            <div class="dpa-mode-pills" data-mode-for="div-low-cont-mode">
+              <button type="button" data-mode-value="auto">auto</button>
+              <button type="button" data-mode-value="kg">kg</button>
+            </div>
+            <input type="number" step="1" min="0" id="div-low-cont" value="" placeholder="Auto" />
+          </div>
         </form>
         <div id="diversion-low-out" class="results"></div>
       </section>
@@ -486,6 +498,18 @@
             Arrival Allowance (min)
             <input type="number" step="1" id="div-high-arrival-min" value="0" />
           </label>
+          <div class="dpa-entry-row dpa-entry-row-frf diversion-contingency-row">
+            <label class="dpa-entry-label" for="div-high-cont">Contingency Fuel</label>
+            <select id="div-high-cont-mode" class="sr-only">
+              <option value="auto" selected>auto</option>
+              <option value="kg">kg</option>
+            </select>
+            <div class="dpa-mode-pills" data-mode-for="div-high-cont-mode">
+              <button type="button" data-mode-value="auto">auto</button>
+              <button type="button" data-mode-value="kg">kg</button>
+            </div>
+            <input type="number" step="1" min="0" id="div-high-cont" value="" placeholder="Auto" />
+          </div>
         </form>
         <div id="diversion-high-out" class="results"></div>
       </section>

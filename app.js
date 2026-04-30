@@ -1463,7 +1463,14 @@ function parseGoAroundTargetGradient(value) {
   throw new Error("Target Gradient must be <= 20 for %, or >= 50 for ft/NM");
 }
 
-function buildFuelRequirement({ flightFuelKg, landingWeightT, additionalHoldingMin, arrivalAllowanceMin = 0, perfAdjust }) {
+function buildFuelRequirement({
+  flightFuelKg,
+  landingWeightT,
+  additionalHoldingMin,
+  arrivalAllowanceMin = 0,
+  perfAdjust,
+  contingencyKg = NaN,
+}) {
   if (!Number.isFinite(flightFuelKg) || flightFuelKg < 0) {
     throw new Error("Flight fuel is invalid");
   }
@@ -1481,6 +1488,9 @@ function buildFuelRequirement({ flightFuelKg, landingWeightT, additionalHoldingM
   }
   if (arrivalAllowanceMin < 0) {
     throw new Error("Arrival allowance minutes must be >= 0");
+  }
+  if (Number.isFinite(contingencyKg) && contingencyKg < 0) {
+    throw new Error("Contingency Fuel must be >= 0");
   }
 
   let frfFfEng;
@@ -1500,16 +1510,19 @@ function buildFuelRequirement({ flightFuelKg, landingWeightT, additionalHoldingM
   const frfKg = frfFuelHrKg * 0.5;
   const extraHoldingKg = additionalHoldFuelHrKg * (additionalHoldingMin / 60);
   const arrivalAllowanceKg = frfFuelHrKg * (arrivalAllowanceMin / 60);
-  const contingencyKg = calculateContingencyFuelKg({
+  const contingencyAutoKg = calculateContingencyFuelKg({
     flightFuelKg,
     holdingWeightT: landingWeightT,
     perfAdjust,
   });
-  const totalFuelKg = flightFuelKg + frfKg + contingencyKg + extraHoldingKg + arrivalAllowanceKg + FIXED_ALLOWANCE_KG;
+  const resolvedContingencyKg = Number.isFinite(contingencyKg) ? contingencyKg : contingencyAutoKg;
+  const totalFuelKg =
+    flightFuelKg + frfKg + resolvedContingencyKg + extraHoldingKg + arrivalAllowanceKg + FIXED_ALLOWANCE_KG;
 
   return {
     frfKg,
-    contingencyKg,
+    contingencyKg: resolvedContingencyKg,
+    contingencyAutoKg,
     extraHoldingKg,
     arrivalAllowanceKg,
     fixedAllowanceKg: FIXED_ALLOWANCE_KG,
@@ -2014,7 +2027,17 @@ function diversionHighGnmToAnm(gnm, windUsed, tableSet) {
 //      shortfall in ANM using the LRC cruise rate (kg/ANM = fuelHr / TAS).
 //      The descent segment is fixed by altitude and is not subtracted.
 // Minimum: ANM must exceed the top-of-descent distance for the given altitude.
-function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdjust, additionalHoldingMin, arrivalAllowanceMin = 0) {
+function diversionLrcFuelByBand(
+  bandKey,
+  gnm,
+  wind,
+  altitudeFt,
+  weightT,
+  perfAdjust,
+  additionalHoldingMin,
+  arrivalAllowanceMin = 0,
+  contingencyKg = NaN,
+) {
   const tableSet = getDiversionBandTable(bandKey);
   if (!tableSet) {
     throw new Error("Diversion LRC table is missing");
@@ -2138,6 +2161,7 @@ function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdj
     additionalHoldingMin,
     arrivalAllowanceMin,
     perfAdjust,
+    contingencyKg,
   });
 
   return {
@@ -2150,6 +2174,7 @@ function diversionLrcFuelByBand(bandKey, gnm, wind, altitudeFt, weightT, perfAdj
     reserveCalcWeightT,
     frfKg: fuelBuildUp.frfKg,
     contingencyKg: fuelBuildUp.contingencyKg,
+    contingencyAutoKg: fuelBuildUp.contingencyAutoKg,
     extraHoldingKg: fuelBuildUp.extraHoldingKg,
     arrivalAllowanceKg: fuelBuildUp.arrivalAllowanceKg,
     fixedAllowanceKg: fuelBuildUp.fixedAllowanceKg,
@@ -6062,14 +6087,27 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
   const weightEl = document.querySelector(fieldIds.weight);
   const holdMinEl = document.querySelector(fieldIds.holdMin);
   const arrivalAllowanceEl = document.querySelector(fieldIds.arrivalMin);
-  if (!gnmEl || !windEl || !altEl || !weightEl || !holdMinEl || !arrivalAllowanceEl) return;
+  const contModeEl = document.querySelector(fieldIds.contMode);
+  const contEl = document.querySelector(fieldIds.cont);
+  if (!gnmEl || !windEl || !altEl || !weightEl || !holdMinEl || !arrivalAllowanceEl || !contModeEl || !contEl) return;
 
   const autoRecalculate = (sourceEl = null) => {
     if (shouldDeferLiveSubmitForInput(sourceEl)) return;
     form.dispatchEvent(new Event("submit"));
   };
 
-  [gnmEl, windEl, altEl, weightEl, holdMinEl, arrivalAllowanceEl].forEach((el) => {
+  const modeSyncButtons = [contModeEl].map((modeEl) => bindModePills(form, modeEl)).filter(Boolean);
+  const syncModeUi = () => {
+    setModeInputState(contModeEl, contEl);
+    modeSyncButtons.forEach((syncButtons) => syncButtons());
+  };
+
+  contModeEl.addEventListener("change", () => {
+    syncModeUi();
+    autoRecalculate();
+  });
+
+  [gnmEl, windEl, altEl, weightEl, holdMinEl, arrivalAllowanceEl, contEl].forEach((el) => {
     bindCommittedInput(el, autoRecalculate);
   });
 
@@ -6092,6 +6130,23 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
       const holdingMin = parseNumOrDefault(holdMinEl.value, 0);
       const arrivalAllowanceMin = parseNumOrDefault(arrivalAllowanceEl.value, 0);
       const perfAdjust = getGlobalPerfAdjust();
+      const autoBase = diversionLrcFuelByBand(
+        bandKey,
+        gnm,
+        wind,
+        altInput.altitudeFt,
+        weightT,
+        perfAdjust,
+        holdingMin,
+        arrivalAllowanceMin,
+      );
+      const contingencyKg = resolveMixedEntryKg({
+        label: "Contingency Fuel",
+        modeEl: contModeEl,
+        valueEl: contEl,
+        minuteFuelFlowKgHr: NaN,
+        autoKg: autoBase.contingencyAutoKg,
+      });
       const result = diversionLrcFuelByBand(
         bandKey,
         gnm,
@@ -6101,6 +6156,7 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
         perfAdjust,
         holdingMin,
         arrivalAllowanceMin,
+        contingencyKg,
       );
 
       gnmEl.value = formatInputNumber(result.usedInputs.gnm, 0);
@@ -6119,7 +6175,12 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
         ["Flight Fuel", `${format(result.adjustedFuel1000Kg * 1000, 0)} kg`],
         ["Est Landing Weight", `${format(result.reserveCalcWeightT, 1)} t`],
         ["FRF (30 min hold @ 1500 ft)", `${format(result.frfKg, 0)} kg`],
-        ["Contingency Fuel (5%, min 5 min hold @ 20000 ft, max 1200)", `${format(result.contingencyKg, 0)} kg`],
+        [
+          String(contModeEl.value || "auto") === "auto"
+            ? "Contingency Fuel (5%, min 5 min hold @ 20000 ft, max 1200)"
+            : "Contingency Fuel (manual override)",
+          `${format(result.contingencyKg, 0)} kg`,
+        ],
         [`Additional Holding Fuel (${format(holdingMin, 1)} min)`, `${format(result.extraHoldingKg, 0)} kg`],
         [`Arrival Allowance (${format(arrivalAllowanceMin, 1)} min)`, `${format(result.arrivalAllowanceKg, 0)} kg`],
         ["Approach Fuel", `${format(result.fixedAllowanceKg, 0)} kg`],
@@ -6132,6 +6193,7 @@ function bindDiversionModule({ bandKey, formSelector, outSelector, fieldIds, alt
     }
   });
 
+  syncModeUi();
   autoRecalculate();
 }
 
@@ -6147,6 +6209,8 @@ function bindDiversion() {
       weight: "#div-low-weight",
       holdMin: "#div-low-hold-min",
       arrivalMin: "#div-low-arrival-min",
+      contMode: "#div-low-cont-mode",
+      cont: "#div-low-cont",
     },
     altLabel: "Diversion Low Alt/FL",
   });
@@ -6161,6 +6225,8 @@ function bindDiversion() {
       weight: "#div-high-weight",
       holdMin: "#div-high-hold-min",
       arrivalMin: "#div-high-arrival-min",
+      contMode: "#div-high-cont-mode",
+      cont: "#div-high-cont",
     },
     altLabel: "Diversion High Alt/FL",
   });

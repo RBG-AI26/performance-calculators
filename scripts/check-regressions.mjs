@@ -207,6 +207,20 @@ assertApprox(diversionHigh.contingencyKg, 344.01215625, 1e-6, "High diversion co
 assertApprox(diversionHigh.totalFuelKg, 6685.3601874999995, 1e-6, "High diversion total fuel");
 assertApprox(diversionHigh.timeMinutes, 64.69375, 1e-6, "High diversion time");
 
+const diversionHighManualContingency = context.diversionLrcFuelByBand("high", 400, -50, 31000, 180, 0, 0, 0, 500);
+assertApprox(
+  diversionHighManualContingency.contingencyKg,
+  500,
+  1e-9,
+  "High diversion manual contingency override",
+);
+assertApprox(
+  diversionHighManualContingency.totalFuelKg,
+  diversionHigh.totalFuelKg + (500 - diversionHigh.contingencyKg),
+  1e-6,
+  "High diversion manual contingency total fuel",
+);
+
 const eoDiversion = context.eoDiversionFuelTime(120, 0, 25000, 200, 0);
 assertApprox(eoDiversion.anm, 200, 1e-9, "EO diversion ANM");
 assertApprox(eoDiversion.flightFuelKg, 1625, 1e-6, "EO diversion fuel");

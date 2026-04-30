@@ -624,6 +624,10 @@ label {
   color: var(--disabled-text);
 }
 
+.diversion-contingency-row {
+  min-height: 100%;
+}
+
 .dpa-actions {
   display: flex;
   justify-content: flex-end;
