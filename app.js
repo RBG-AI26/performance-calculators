@@ -6,9 +6,10 @@ const EO_DIVERSION_TABLE = window.EO_DIVERSION_TABLE;
 const FLAPS_UP_TABLE = window.FLAPS_UP_TABLE;
 const DIVERSION_LRC_TABLE = window.DIVERSION_LRC_TABLE;
 const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
+const AIRSPEED_UNRELIABLE_TABLE = window.AIRSPEED_UNRELIABLE_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.12.6";
+const APP_VERSION = "v7.13.0";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
@@ -4062,6 +4063,7 @@ function recalculateAllForms() {
     "#diversion-low-form",
     "#diversion-high-form",
     "#go-around-form",
+    "#airspeed-unreliable-form",
     "#holding-form",
     "#lose-time-form",
     "#conversion-form",
@@ -8084,6 +8086,219 @@ function setAppVersionLabel() {
   }
 }
 
+// ─── Airspeed Unreliable ──────────────────────────────────────────────────────
+
+const AIRSPEED_UNRELIABLE_MEASURE_LABELS = {
+  pitch: "Pitch Attitude",
+  n1: "%N1",
+  vs: "V/S",
+  kias: "KIAS",
+};
+
+function formatAirspeedUnreliableValue(measure, value) {
+  if (!Number.isFinite(value)) return "-";
+  if (measure === "pitch") return `${format(value, 1)} deg`;
+  if (measure === "n1") return `${format(value, 1)}%`;
+  if (measure === "vs") return `${format(value, 0)} ft/min`;
+  if (measure === "kias") return `${format(value, 0)} kt`;
+  return format(value, 1);
+}
+
+function interpolateAirspeedUnreliableWeight(values, weightT, label) {
+  return interpolateAcrossWeightPoints(
+    AIRSPEED_UNRELIABLE_TABLE.weights.map((weight, idx) => ({
+      weight,
+      value: values[idx] == null ? NaN : values[idx],
+    })),
+    weightT,
+    label,
+  );
+}
+
+function interpolateAirspeedUnreliableAltitude(rows, measure, weightT, altitudeFt, scenario) {
+  const rowPoints = rows
+    .map((row) => {
+      try {
+        return {
+          altitudeFt: row.altitudeFt,
+          value: interpolateAirspeedUnreliableWeight(row[measure], weightT, AIRSPEED_UNRELIABLE_MEASURE_LABELS[measure]),
+          speedLabel: row.speedLabel || "",
+        };
+      } catch {
+        return { altitudeFt: row.altitudeFt, value: NaN, speedLabel: row.speedLabel || "" };
+      }
+    })
+    .filter((point) => Number.isFinite(point.value))
+    .sort((a, b) => a.altitudeFt - b.altitudeFt);
+
+  if (rowPoints.length < 2) {
+    throw new Error(`Insufficient ${AIRSPEED_UNRELIABLE_MEASURE_LABELS[measure]} data at this weight`);
+  }
+
+  const minAlt = rowPoints[0].altitudeFt;
+  const maxAlt = rowPoints[rowPoints.length - 1].altitudeFt;
+  const lookupAltFt = scenario.clampAltitude ? clamp(altitudeFt, minAlt, maxAlt) : altitudeFt;
+  if (!scenario.clampAltitude && (lookupAltFt < minAlt || lookupAltFt > maxAlt)) {
+    throw new Error(`Altitude out of range for this weight (${format(minAlt, 0)}-${format(maxAlt, 0)} ft)`);
+  }
+
+  for (let i = 0; i < rowPoints.length - 1; i += 1) {
+    const lower = rowPoints[i];
+    const upper = rowPoints[i + 1];
+    if (lookupAltFt >= lower.altitudeFt && lookupAltFt <= upper.altitudeFt) {
+      const t = upper.altitudeFt === lower.altitudeFt ? 0 : (lookupAltFt - lower.altitudeFt) / (upper.altitudeFt - lower.altitudeFt);
+      return {
+        value: lower.value + (upper.value - lower.value) * t,
+        lookupAltFt,
+        clampedAltitude: lookupAltFt !== altitudeFt,
+        lower,
+        upper,
+      };
+    }
+  }
+
+  const last = rowPoints[rowPoints.length - 1];
+  return { value: last.value, lookupAltFt, clampedAltitude: lookupAltFt !== altitudeFt, lower: last, upper: last };
+}
+
+function calculateAirspeedUnreliable({ scenarioKey, weightT, altitudeInput, configurationKey }) {
+  if (!AIRSPEED_UNRELIABLE_TABLE) {
+    throw new Error("Airspeed unreliable table is missing");
+  }
+  const scenario = AIRSPEED_UNRELIABLE_TABLE.scenarios[scenarioKey];
+  if (!scenario) {
+    throw new Error("Select a valid table");
+  }
+  if (!Number.isFinite(weightT) || weightT <= 0) {
+    throw new Error("Weight must be > 0 t");
+  }
+
+  const result = {
+    scenario,
+    scenarioLabel: scenario.label,
+    rows: [],
+    warnings: [],
+  };
+
+  if (scenario.inputType === "configuration") {
+    const config = scenario.configurations?.[configurationKey];
+    if (!config) {
+      throw new Error("Select a valid configuration");
+    }
+    result.configurationLabel = config.label;
+    scenario.measures.forEach((measure) => {
+      const value = interpolateAirspeedUnreliableWeight(config[measure], weightT, AIRSPEED_UNRELIABLE_MEASURE_LABELS[measure]);
+      result.rows.push([AIRSPEED_UNRELIABLE_MEASURE_LABELS[measure], formatAirspeedUnreliableValue(measure, value)]);
+    });
+    return result;
+  }
+
+  const parsedAlt = parseAltOrFlInput(altitudeInput, "Alt/FL");
+  const altitudeFt = parsedAlt.altitudeFt;
+  let lookupAltFt = altitudeFt;
+  const brackets = [];
+
+  scenario.measures.forEach((measure) => {
+    const interpolated = interpolateAirspeedUnreliableAltitude(scenario.rows, measure, weightT, altitudeFt, scenario);
+    lookupAltFt = interpolated.lookupAltFt;
+    if (interpolated.clampedAltitude) {
+      result.warnings.push(`Altitude clamped to ${format(interpolated.lookupAltFt, 0)} ft for ${scenario.label}.`);
+    }
+    brackets.push(interpolated);
+    result.rows.push([AIRSPEED_UNRELIABLE_MEASURE_LABELS[measure], formatAirspeedUnreliableValue(measure, interpolated.value)]);
+  });
+
+  const firstBracket = brackets[0];
+  const speedLabels = [firstBracket?.lower?.speedLabel, firstBracket?.upper?.speedLabel].filter(Boolean);
+  result.altitudeFt = altitudeFt;
+  result.lookupAltFt = lookupAltFt;
+  result.speedLabel = [...new Set(speedLabels)].join(" / ");
+  return result;
+}
+
+function bindAirspeedUnreliable() {
+  const form = document.querySelector("#airspeed-unreliable-form");
+  const out = document.querySelector("#airspeed-unreliable-out");
+  if (!form || !out) return;
+
+  const scenarioEl = document.querySelector("#au-scenario");
+  const weightEl = document.querySelector("#au-weight");
+  const altitudeEl = document.querySelector("#au-altitude");
+  const configurationEl = document.querySelector("#au-configuration");
+  const altitudeField = document.querySelector("#au-altitude-field");
+  const configurationField = document.querySelector("#au-configuration-field");
+  const noteEl = document.querySelector("#au-note");
+
+  const syncScenarioUi = () => {
+    const scenario = AIRSPEED_UNRELIABLE_TABLE?.scenarios?.[scenarioEl.value];
+    if (!scenario) return;
+    const isConfiguration = scenario.inputType === "configuration";
+    altitudeField.hidden = isConfiguration;
+    configurationField.hidden = !isConfiguration;
+    altitudeEl.disabled = isConfiguration;
+    configurationEl.disabled = !isConfiguration;
+
+    if (isConfiguration) {
+      const currentValue = configurationEl.value;
+      configurationEl.innerHTML = Object.entries(scenario.configurations)
+        .map(([value, config]) => `<option value="${value}">${config.label}</option>`)
+        .join("");
+      if (scenario.configurations[currentValue]) configurationEl.value = currentValue;
+    }
+
+    noteEl.textContent = [scenario.subtitle, scenario.note].filter(Boolean).join(". ");
+  };
+
+  const autoRecalculate = (sourceEl = null) => {
+    if (shouldDeferLiveSubmitForInput(sourceEl)) return;
+    form.dispatchEvent(new Event("submit"));
+  };
+
+  scenarioEl.addEventListener("change", () => {
+    syncScenarioUi();
+    autoRecalculate(scenarioEl);
+  });
+  configurationEl.addEventListener("change", () => autoRecalculate(configurationEl));
+  bindCommittedInput(weightEl, autoRecalculate);
+  bindCommittedInput(altitudeEl, autoRecalculate);
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const scenario = AIRSPEED_UNRELIABLE_TABLE?.scenarios?.[scenarioEl.value];
+    if (missingFieldsBanner(out, [
+      fieldIsBlank(weightEl.value) ? "Weight" : "",
+      scenario?.inputType === "altitude" && fieldIsBlank(altitudeEl.value) ? "Alt/FL" : "",
+    ])) return;
+
+    try {
+      const result = calculateAirspeedUnreliable({
+        scenarioKey: scenarioEl.value,
+        weightT: parseNum(weightEl.value),
+        altitudeInput: altitudeEl.value,
+        configurationKey: configurationEl.value,
+      });
+
+      const rows = [
+        ["Table", result.scenarioLabel],
+        ...(result.configurationLabel ? [["Configuration", result.configurationLabel]] : []),
+        ...(Number.isFinite(result.lookupAltFt) ? [["Lookup Altitude", `${format(result.lookupAltFt, 0)} ft`]] : []),
+        ...(result.speedLabel ? [["Speed Basis", result.speedLabel]] : []),
+        ["__spacer__", ""],
+        ...result.rows,
+        ...[...new Set(result.warnings)].map((warning) => ["__warning__", warning]),
+      ];
+      renderRows(out, rows);
+    } catch (error) {
+      renderError(out, error.message);
+    }
+  });
+
+  syncScenarioUi();
+  autoRecalculate();
+}
+
+// ─── End Airspeed Unreliable ──────────────────────────────────────────────────
+
 // ─── Crew Oxygen Endurance ────────────────────────────────────────────────────
 
 // Table 4: Cylinder volume (1000 L) vs pressure at 21°C (PSI)
@@ -8296,6 +8511,7 @@ bindLrcAltitudeLimits();
 bindEngineOut();
 bindDiversion();
 bindGoAround();
+bindAirspeedUnreliable();
 bindHolding();
 bindLoseTime();
 bindFixTimeAtFix();

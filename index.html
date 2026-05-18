@@ -92,6 +92,38 @@
       </section>
 
       <div id="module-stack" class="module-stack">
+      <section class="panel" data-family="altitude" aria-labelledby="airspeed-unreliable-heading">
+        <h2 id="airspeed-unreliable-heading">Airspeed Unreliable</h2>
+        <p class="module-note" id="au-note">QRH pitch, thrust, vertical speed and target KIAS lookup with interpolation between table weights and altitudes.</p>
+        <form id="airspeed-unreliable-form" class="grid">
+          <label>
+            Table
+            <select id="au-scenario">
+              <option value="climb">Climb</option>
+              <option value="cruise">Cruise</option>
+              <option value="descent">Descent</option>
+              <option value="holding">Holding</option>
+              <option value="terminal">Terminal Area</option>
+              <option value="finalApproach">Final Approach</option>
+              <option value="goAround">Go-Around</option>
+            </select>
+          </label>
+          <label>
+            Weight (t)
+            <input type="number" step="0.1" min="0" id="au-weight" value="200" />
+          </label>
+          <label id="au-altitude-field">
+            Alt/FL
+            <input type="number" step="1" id="au-altitude" value="25000" />
+          </label>
+          <label id="au-configuration-field" hidden>
+            Configuration
+            <select id="au-configuration"></select>
+          </label>
+        </form>
+        <div id="airspeed-unreliable-out" class="results"></div>
+      </section>
+
       <section class="panel" data-family="fuel" aria-labelledby="trip-fuel-heading">
         <h2 id="trip-fuel-heading">Trip Fuel</h2>
         <p class="module-note">Short-trip/LRC unified fuel model with ANM blending from 600-800</p>
@@ -874,6 +906,7 @@
     <script src="./flaps_up_data.js"></script>
     <script src="./diversion_data.js"></script>
     <script src="./go_around_data.js"></script>
+    <script src="./airspeed_unreliable_data.js"></script>
     <script src="https://unpkg.com/dropbox@10.34.0/dist/Dropbox-sdk.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
     <script src="./sync-config.js"></script>
