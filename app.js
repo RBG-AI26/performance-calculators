@@ -8161,6 +8161,24 @@ function interpolateAirspeedUnreliableAltitude(rows, measure, weightT, altitudeF
   return { value: last.value, lookupAltFt, clampedAltitude: lookupAltFt !== altitudeFt, lower: last, upper: last };
 }
 
+function parseAirspeedUnreliableAltitude(rawInput, scenario) {
+  const rawText = String(rawInput ?? "").trim();
+  if (rawText === "") {
+    throw new Error("Alt/FL must be entered");
+  }
+
+  const value = Number(rawText);
+  const allowsSeaLevel = scenario.rows?.some((row) => row.altitudeFt === 0);
+  if (!Number.isFinite(value) || value < 0 || (!allowsSeaLevel && value === 0)) {
+    throw new Error(allowsSeaLevel ? "Alt/FL must be >= 0" : "Alt/FL must be > 0");
+  }
+
+  const absValue = Math.abs(value);
+  const integerDigits = Math.trunc(absValue).toString().length;
+  const isThreeDigitFl = Number.isInteger(value) && integerDigits === 3;
+  return isThreeDigitFl ? value * 100 : value;
+}
+
 function calculateAirspeedUnreliable({ scenarioKey, weightT, altitudeInput, configurationKey }) {
   if (!AIRSPEED_UNRELIABLE_TABLE) {
     throw new Error("Airspeed unreliable table is missing");
@@ -8193,8 +8211,7 @@ function calculateAirspeedUnreliable({ scenarioKey, weightT, altitudeInput, conf
     return result;
   }
 
-  const parsedAlt = parseAltOrFlInput(altitudeInput, "Alt/FL");
-  const altitudeFt = parsedAlt.altitudeFt;
+  const altitudeFt = parseAirspeedUnreliableAltitude(altitudeInput, scenario);
   let lookupAltFt = altitudeFt;
   const brackets = [];
 
