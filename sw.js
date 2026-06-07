@@ -1,4 +1,4 @@
-const CACHE_NAME = "performance-calculators-v54";
+const CACHE_NAME = "performance-calculators-v55";
 const APP_SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -17,7 +17,6 @@ const APP_SHELL_ASSETS = [
   "./manifest.webmanifest",
   "./apple-touch-icon.png",
   "./favicon-192.png",
-  "./icons/icon-512.png",
 ];
 const APP_SHELL_PATHS = new Set(APP_SHELL_ASSETS.map((asset) => new URL(asset, self.location.href).pathname));
 
@@ -57,23 +56,31 @@ self.addEventListener("fetch", (event) => {
   const isNavigation = event.request.mode === "navigate";
   const isAppShellAsset = APP_SHELL_PATHS.has(requestUrl.pathname);
 
-  const networkFirst = async (cacheKey) => {
+  const refreshCache = async (cache, cacheKey) => {
+    const networkResponse = await fetch(event.request, { cache: "no-cache" });
+    if (networkResponse && networkResponse.ok) {
+      await cache.put(cacheKey, networkResponse.clone());
+    }
+    return networkResponse;
+  };
+
+  const cacheFirstWithRefresh = async (cacheKey) => {
     const cache = await caches.open(CACHE_NAME);
+    const cached = await cache.match(cacheKey, { ignoreSearch: true });
+    if (cached) {
+      event.waitUntil(refreshCache(cache, cacheKey).catch(() => {}));
+      return cached;
+    }
+
     try {
-      const networkResponse = await fetch(event.request, { cache: "no-store" });
-      if (networkResponse && networkResponse.ok) {
-        await cache.put(cacheKey, networkResponse.clone());
-      }
-      return networkResponse;
+      return await refreshCache(cache, cacheKey);
     } catch (error) {
-      const cached = await cache.match(cacheKey, { ignoreSearch: true });
-      if (cached) return cached;
       throw error;
     }
   };
 
   if (isNavigation || isAppShellAsset) {
-    event.respondWith(networkFirst(isNavigation ? "./index.html" : event.request));
+    event.respondWith(cacheFirstWithRefresh(isNavigation ? "./index.html" : event.request));
     return;
   }
 

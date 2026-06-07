@@ -9,7 +9,7 @@ const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 const AIRSPEED_UNRELIABLE_TABLE = window.AIRSPEED_UNRELIABLE_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.13.0";
+const APP_VERSION = "v7.13.1";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
@@ -27,6 +27,8 @@ const SYNC_SCENARIO_FILE_VERSION = 1;
 const SYNC_SCENARIO_BUNDLE_TYPE = "performance-calculators-scenarios-sync";
 const SYNC_SCENARIO_BUNDLE_VERSION = 1;
 const SYNC_ACTIVITY_STORAGE_KEY = "performance-calculators-sync-activity-v1";
+const DROPBOX_SDK_URL = "https://unpkg.com/dropbox@10.34.0/dist/Dropbox-sdk.min.js";
+const SORTABLE_JS_URL = "https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js";
 
 const R_AIR = 287.05287;
 const GAMMA = 1.4;
@@ -175,6 +177,57 @@ const TAKEOFF_CROSSWIND_DATA = {
   },
 };
 let linkedWeightOverrides = readLinkedWeightOverrides();
+let dropboxSdkLoadPromise = null;
+let sortableLoadPromise = null;
+
+function loadExternalScript(src, globalIsReady) {
+  if (globalIsReady()) return Promise.resolve();
+
+  const existingScript = Array.from(document.scripts).find((script) => script.src === src);
+  if (existingScript) {
+    return new Promise((resolve, reject) => {
+      existingScript.addEventListener("load", () => resolve(), { once: true });
+      existingScript.addEventListener("error", () => reject(new Error(`Unable to load ${src}`)), { once: true });
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Unable to load ${src}`));
+    document.head.appendChild(script);
+  }).then(() => {
+    if (!globalIsReady()) {
+      throw new Error(`Loaded ${src}, but the expected library was unavailable.`);
+    }
+  });
+}
+
+function ensureDropboxSdkLoaded() {
+  if (typeof window.Dropbox?.Dropbox === "function") return Promise.resolve();
+  if (!dropboxSdkLoadPromise) {
+    dropboxSdkLoadPromise = loadExternalScript(DROPBOX_SDK_URL, () => typeof window.Dropbox?.Dropbox === "function").catch(
+      (error) => {
+        dropboxSdkLoadPromise = null;
+        throw error;
+      },
+    );
+  }
+  return dropboxSdkLoadPromise;
+}
+
+function ensureSortableLoaded() {
+  if (typeof window.Sortable === "function") return Promise.resolve();
+  if (!sortableLoadPromise) {
+    sortableLoadPromise = loadExternalScript(SORTABLE_JS_URL, () => typeof window.Sortable === "function").catch((error) => {
+      sortableLoadPromise = null;
+      throw error;
+    });
+  }
+  return sortableLoadPromise;
+}
 
 function parseNum(value) {
   const n = Number(value);
@@ -4476,6 +4529,7 @@ async function requestDropboxToken(params) {
 }
 
 async function fetchDropboxAccount(accessToken) {
+  await ensureDropboxSdkLoaded();
   const dbx = createDropboxClient({ accessToken });
   const response = await dbx.usersGetCurrentAccount();
   const payload = response?.result || response;
@@ -4671,6 +4725,7 @@ function parseSyncScenarioBundle(rawText) {
 
 async function downloadDropboxScenarioBundle(session) {
   const config = getSyncConfig();
+  await ensureDropboxSdkLoaded();
   const dbx = createDropboxClient(session);
   try {
     const response = await dbx.filesDownload({ path: config.dropboxSyncFilePath });
@@ -4696,6 +4751,7 @@ async function downloadDropboxScenarioBundle(session) {
 async function uploadDropboxScenarioBundle(session, scenarios) {
   const config = getSyncConfig();
   const payload = JSON.stringify(buildSyncScenarioBundle(scenarios), null, 2);
+  await ensureDropboxSdkLoaded();
   const dbx = createDropboxClient(session);
   await dbx.filesUpload({
     path: config.dropboxSyncFilePath,
@@ -5146,7 +5202,10 @@ function installModuleReordering() {
     // Ignore bad persisted order.
   }
 
-  if (typeof window.Sortable === "function") {
+  let sortableInstalled = false;
+  const installSortable = () => {
+    if (sortableInstalled || typeof window.Sortable !== "function") return;
+    sortableInstalled = true;
     window.Sortable.create(moduleStack, {
       animation: 160,
       handle: "section.panel > h2",
@@ -5162,8 +5221,16 @@ function installModuleReordering() {
         setStatus("Module order saved on this device.", "success");
       },
     });
+  };
+
+  if (typeof window.Sortable === "function") {
+    installSortable();
   } else {
-    setStatus("Drag reorder unavailable: Sortable library did not load.", "error");
+    ensureSortableLoaded()
+      .then(installSortable)
+      .catch(() => {
+        setStatus("Drag reorder unavailable while offline. Other calculator functions are ready.", "error");
+      });
   }
 
   if (resetBtn) {
