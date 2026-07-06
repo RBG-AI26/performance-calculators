@@ -207,6 +207,16 @@ assertApprox(diversionHigh.contingencyKg, 344.01215625, 1e-6, "High diversion co
 assertApprox(diversionHigh.totalFuelKg, 6685.3601874999995, 1e-6, "High diversion total fuel");
 assertApprox(diversionHigh.timeMinutes, 64.69375, 1e-6, "High diversion time");
 
+const diversionHighAnmClamped = context.diversionLrcFuelByBand("high", 8400, -100, 31000, 220, 0, 0, 0);
+assertApprox(diversionHighAnmClamped.anm, 10918, 1e-9, "High diversion headwind ANM");
+assert.ok(
+  diversionHighAnmClamped.warnings.some((warning) =>
+    warning.includes("Air distance 10,918 ANM outside fuel/time table range") &&
+    warning.includes("fuel/time clamped to 8,400 ANM")
+  ),
+  "High diversion warns when ANM exceeds fuel/time table",
+);
+
 const diversionHighManualContingency = context.diversionLrcFuelByBand("high", 400, -50, 31000, 180, 0, 0, 0, 500);
 assertApprox(
   diversionHighManualContingency.contingencyKg,

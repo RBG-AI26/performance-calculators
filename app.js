@@ -2109,6 +2109,7 @@ function diversionLrcFuelByBand(
   const weightAxis     = tableSet.fuelAdjustment.weightAxisT;
   const anmAxis        = tableSet.fuelTime.anmAxis;
   const anmMin         = anmAxis[0];
+  const anmMax         = anmAxis[anmAxis.length - 1];
 
   const windUsed     = clampToAxis(windAxis, wind);
   const altitudeUsed = clampToAxis(altitudeAxisFt, altitudeFt);
@@ -2149,7 +2150,6 @@ function diversionLrcFuelByBand(
   }
 
   // Lookup fuel and time from the fuelTime table.
-  // Lookup fuel and time from the fuelTime table.
   // For ANM >= table minimum (400): read directly.
   // For ANM < 400 (High band only): interpolate between two known points:
   //   - Upper anchor: 400 ANM table value (weight-adjusted).
@@ -2157,7 +2157,14 @@ function diversionLrcFuelByBand(
   // Fuel scales linearly between these two points based on the fraction of cruise ANM.
   // Near the 400 ANM boundary the table rate is used directly for continuity;
   // further from the boundary proportional scaling dominates.
-  const anmForLookup = Math.max(anm, anmMin);
+  const anmForLookupRaw = anm < anmMin && bandKey === "high" ? anmMin : anm;
+  const anmForLookup = clampToAxis(anmAxis, anmForLookupRaw);
+  if (anmForLookup !== anmForLookupRaw) {
+    warnings.push(
+      `Air distance ${format(anm, 0)} ANM outside fuel/time table range ` +
+      `(${format(anmMin, 0)}-${format(anmMax, 0)} ANM); fuel/time clamped to ${format(anmForLookup, 0)} ANM`
+    );
+  }
 
   const referenceFuel1000Kg = bilinearClamped(
     anmAxis,
