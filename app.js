@@ -9,7 +9,7 @@ const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 const AIRSPEED_UNRELIABLE_TABLE = window.AIRSPEED_UNRELIABLE_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.15.1";
+const APP_VERSION = "v7.15.2";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";

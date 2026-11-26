@@ -322,6 +322,14 @@ body {
   align-items: end;
 }
 
+#vref-form {
+  align-items: start;
+}
+
+#bc-note {
+  margin: 0.65rem 0 0;
+}
+
 #crew-oxygen-form {
   grid-template-columns: 1.35fr 1.35fr 0.95fr 0.95fr;
 }
