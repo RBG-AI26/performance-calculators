@@ -315,4 +315,38 @@ for (const [basis, cases] of Object.entries({
 assert.equal(context.brakeSchedule(2.5, "indication").ground, 16.5);
 assert.throws(() => context.brakeSchedule(4.91, "indication"), /decimal place/);
 
+// Check both flap columns in source order (descending landing weight).
+const vrefRows = [
+  // Weight, sea-level VREF25/30, 10,000 ft VREF25/30
+  [260, 182, 176, 185, 178], [250, 179, 173, 182, null], [240, 176, 171, 179, 172],
+  [230, 172, 167, 175, 168], [220, 168, 163, 171, 165], [210, 164, 159, 166, 161],
+  [200, 160, 155, 162, 157], [190, 156, 151, 158, 152], [180, 152, 147, 153, 148],
+  [170, 148, 143, 148, 144], [160, 143, 138, 144, 139], [150, 139, 134, 139, 135],
+  [140, 134, 129, 134, 130], [130, 129, 125, 129, 126], [120, 124, 121, 124, 122],
+];
+const vref = (weight, altitude) => Object.values(context.calculateVref(weight, altitude));
+for (const [weight, a, b, c, d] of vrefRows) {
+  assert.deepEqual(vref(weight, 0), [a, b]);
+  assert.deepEqual(vref(weight, 10000), [c, d]);
+}
+// The 14,000 ft source prints Flaps 30 before Flaps 25.
+for (const [weight, flap30, flap25] of [
+  [270, 182, 190], [260, 178, 186], [250, 176, 183], [240, 173, 180],
+  [230, 169, 176], [220, 165, 172], [210, 161, 167], [200, 157, 163],
+  [190, 153, 159], [180, 149, 154], [170, 144, 149], [160, 140, 144],
+  [150, 135, 140], [140, 130, 134], [130, 126, 129], [120, 122, 124],
+]) {
+  assert.deepEqual(vref(weight, 14000), [flap25, flap30]);
+}
+assert.deepEqual(vref(195, 12000), [160.5, 154.75]);
+assert.deepEqual(vref(250, 12000), [182.5, null]);
+assert.deepEqual(vref(265, 14000), [188, 180]);
+assert.deepEqual(vref(195, 5000), [159, 153.75]);
+assert.deepEqual(vref(245, 5000), [179, null]);
+assert.deepEqual(vref(255, 0), [180.5, 174.5]);
+assert.deepEqual(vref(260, 5000), [183.5, 177]);
+for (const [weight, altitude] of [[119, 0], [261, 0], [NaN, 0], [180, -1], [180, 14001], [180, NaN], [265, 13999], [271, 14000]]) {
+  assert.throws(() => vref(weight, altitude));
+}
+
 console.log("Regression checks passed.");

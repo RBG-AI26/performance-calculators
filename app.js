@@ -9,7 +9,7 @@ const GO_AROUND_TABLE = window.GO_AROUND_TABLE;
 const AIRSPEED_UNRELIABLE_TABLE = window.AIRSPEED_UNRELIABLE_TABLE;
 
 const { shortTripAnm, longRangeAnm, longRangeFuel: longRangeFuelTable, shortTripFuelAlt } = TABLE_DATA;
-const APP_VERSION = "v7.14.0";
+const APP_VERSION = "v7.15.1";
 const INPUT_STATE_STORAGE_KEY = "performance-calculators-input-state-v1";
 const PANEL_COLLAPSE_STORAGE_KEY = "performance-calculators-panel-collapse-v1";
 const MODULE_ORDER_STORAGE_KEY = "performance-calculators-module-order-v1";
@@ -4124,6 +4124,7 @@ function recalculateAllForms() {
     "#diversion-high-form",
     "#go-around-form",
     "#airspeed-unreliable-form",
+    "#vref-form",
     "#brake-cooling-form",
     "#holding-form",
     "#lose-time-form",
@@ -8161,6 +8162,77 @@ function setAppVersionLabel() {
   }
 }
 
+// Flap Maneuver Speed tables at 0 and 10,000 ft, and VREF table at 14,000 ft.
+// Each row follows the weight axis. Lower-altitude tables end at 260 t.
+const VREF_WEIGHTS_T = [120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270];
+const VREF_ALTITUDES_FT = [0, 10000, 14000];
+const VREF_SPEEDS = {
+  25: [
+    [124, 129, 134, 139, 143, 148, 152, 156, 160, 164, 168, 172, 176, 179, 182, null],
+    [124, 129, 134, 139, 144, 148, 153, 158, 162, 166, 171, 175, 179, 182, 185, null],
+    [124, 129, 134, 140, 144, 149, 154, 159, 163, 167, 172, 176, 180, 183, 186, 190],
+  ],
+  30: [
+    [121, 125, 129, 134, 138, 143, 147, 151, 155, 159, 163, 167, 171, 173, 176, null],
+    // The supplied image obscures the 250 t entry at 10,000 ft.
+    [122, 126, 130, 135, 139, 144, 148, 152, 157, 161, 165, 168, 172, null, 178, null],
+    [122, 126, 130, 135, 140, 144, 149, 153, 157, 161, 165, 169, 173, 176, 178, 182],
+  ],
+};
+
+function calculateVref(weightT, altitudeFt) {
+  if (!Number.isFinite(altitudeFt) || altitudeFt < 0 || altitudeFt > 14000) {
+    throw new Error("The available VREF tables cover pressure altitudes from sea level to 14,000 ft.");
+  }
+  const maxWeight = altitudeFt === 14000 ? 270 : 260;
+  if (!Number.isFinite(weightT) || weightT < 120 || weightT > maxWeight) {
+    throw new Error(`Enter a landing weight from 120 to ${maxWeight} t at this pressure altitude.`);
+  }
+  const weight = findBracket(VREF_WEIGHTS_T, weightT);
+  const altitude = findBracket(VREF_ALTITUDES_FT, altitudeFt);
+  function blend(lower, upper, fraction) {
+    if (fraction === 0) return lower;
+    if (fraction === 1) return upper;
+    if (lower === null || upper === null) return null;
+    return lower + (upper - lower) * fraction;
+  }
+  function speed(grid) {
+    const atWeight = (row) => blend(row[weight.i0], row[weight.i1], weight.t);
+    return blend(atWeight(grid[altitude.i0]), atWeight(grid[altitude.i1]), altitude.t);
+  }
+  return { flap25: speed(VREF_SPEEDS[25]), flap30: speed(VREF_SPEEDS[30]) };
+}
+
+function bindVref() {
+  const form = document.querySelector("#vref-form");
+  const out = document.querySelector("#vref-out");
+  if (!form || !out) return;
+  const weight = document.querySelector("#vref-weight");
+  const altitude = document.querySelector("#vref-altitude");
+  const update = () => {
+    if (missingFieldsBanner(out, [
+      fieldIsBlank(weight.value) ? "Landing weight" : "",
+      fieldIsBlank(altitude.value) ? "Pressure altitude" : "",
+    ])) return;
+    try {
+      const { flap25, flap30 } = calculateVref(weight.valueAsNumber, altitude.valueAsNumber);
+      renderRows(out, [
+        ["VREF 25", `${format(flap25, 1)} KIAS`],
+        ["VREF 30", flap30 === null ? "Unavailable · 250 t / 10,000 ft source value obscured" : `${format(flap30, 1)} KIAS`],
+      ]);
+    } catch (error) {
+      renderValidation(out, error.message);
+    }
+  };
+  form.addEventListener("input", update);
+  form.addEventListener("change", update);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    update();
+  });
+  update();
+}
+
 // ─── Airspeed Unreliable ──────────────────────────────────────────────────────
 
 const AIRSPEED_UNRELIABLE_MEASURE_LABELS = {
@@ -8604,6 +8676,7 @@ bindEngineOut();
 bindDiversion();
 bindGoAround();
 bindAirspeedUnreliable();
+bindVref();
 bindBrakeCooling();
 bindHolding();
 bindLoseTime();

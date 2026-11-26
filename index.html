@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.14.0</p>
+        <p class="app-version" id="app-version">Version v7.15.1</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -858,6 +858,22 @@
           </label>
         </form>
         <div id="takeoff-crosswind-out" class="results"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="vref-heading">
+        <h2 id="vref-heading">Landing Reference Speed (VREF)</h2>
+        <p class="module-note">Flaps 25 and 30. Speeds are interpolated between the weight and pressure altitude entries in the supplied tables.</p>
+        <form id="vref-form" class="grid">
+          <label>Landing weight (t)
+            <input type="number" id="vref-weight" min="120" max="270" step="any" placeholder="120–260" aria-describedby="vref-weight-range" />
+            <span id="vref-weight-range" class="module-note">Up to 270 t at 14,000 ft only</span>
+          </label>
+          <label>Pressure altitude (ft)
+            <input type="number" id="vref-altitude" min="0" max="14000" step="any" value="0" aria-describedby="vref-range" />
+            <span id="vref-range" class="module-note">Sea level to 14,000 ft</span>
+          </label>
+        </form>
+        <div id="vref-out" class="results" aria-live="polite"></div>
       </section>
 
       <section class="panel" aria-labelledby="brake-cooling-heading">
