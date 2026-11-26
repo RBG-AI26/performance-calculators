@@ -22,7 +22,7 @@
     <main class="layout">
       <header class="hero">
         <h1>Performance Calculators</h1>
-        <p class="app-version" id="app-version">Version v7.13.1</p>
+        <p class="app-version" id="app-version">Version v7.14.0</p>
       </header>
 
       <section class="panel" aria-labelledby="global-settings-heading">
@@ -860,6 +860,79 @@
         <div id="takeoff-crosswind-out" class="results"></div>
       </section>
 
+      <section class="panel" aria-labelledby="brake-cooling-heading">
+        <h2 id="brake-cooling-heading">Recommended Brake Cooling Schedule</h2>
+        <p class="module-note">Observe the AFM maximum quick turnaround limit. Energy values are in million ft·lbf per brake.</p>
+        <form id="brake-cooling-form" class="grid">
+          <label>
+            Schedule entry
+            <select id="bc-method">
+              <option value="energy">Calculate from braking event</option>
+              <option value="indication">Hottest brake indication (MFD)</option>
+            </select>
+          </label>
+          <label data-brake-field="indication" hidden>
+            Hottest brake indication
+            <input type="number" id="bc-indication" min="0" step="0.1" />
+          </label>
+          <label data-brake-field="event">
+            Braking event
+            <select id="bc-event">
+              <option value="ab1">Landing · Autobrake 1</option>
+              <option value="ab2">Landing · Autobrake 2</option>
+              <option value="ab3" selected>Landing · Autobrake 3</option>
+              <option value="ab4">Landing · Autobrake 4</option>
+              <option value="auto">Landing · Max auto</option>
+              <option value="manual">Landing · Max manual</option>
+              <option value="rto">Rejected take-off · Max manual</option>
+            </select>
+          </label>
+          <label data-brake-field="landing">
+            Reverse thrust
+            <select id="bc-reverse">
+              <option value="none">No reverse thrust</option>
+              <option value="two">Two-engine reverse thrust</option>
+            </select>
+          </label>
+          <label data-brake-field="event">Aircraft weight (t)
+            <input type="number" id="bc-weight" min="110" max="270" step="any" placeholder="110–270" />
+          </label>
+          <label data-brake-field="event">Speed basis
+            <select id="bc-basis">
+              <option value="ias">Indicated airspeed (KIAS)</option>
+              <option value="gs">Groundspeed (kt)</option>
+            </select>
+          </label>
+          <label data-brake-field="event">Brakes-on speed (kt)
+            <input type="number" id="bc-speed" min="0" step="any" />
+          </label>
+          <label data-brake-field="ias">Wind component (kt, + headwind / − tailwind)
+            <input type="number" id="bc-wind" step="any" value="0" />
+          </label>
+          <label data-brake-field="ias">Pressure altitude (ft)
+            <input type="number" id="bc-altitude" min="0" max="14000" step="any" value="0" />
+          </label>
+          <label data-brake-field="ias">OAT (°C)
+            <input type="number" id="bc-oat" min="0" max="40" step="any" value="15" />
+          </label>
+          <label data-brake-field="event">Taxi distance (statute miles)
+            <input type="number" id="bc-taxi" min="0" step="any" value="0" />
+          </label>
+          <label data-brake-field="event">Deactivated brakes
+            <select id="bc-deactivated">
+              <option value="0">None</option>
+              <option value="1">One (+15%)</option>
+              <option value="2">Two (+34%)</option>
+            </select>
+          </label>
+          <label data-brake-field="event">Residual energy per operating brake (million ft·lbf)
+            <input type="number" id="bc-residual" min="0" step="any" value="0" />
+          </label>
+        </form>
+        <p id="bc-note" class="module-note"></p>
+        <div id="brake-cooling-out" class="results" aria-live="polite"></div>
+      </section>
+
       <section class="panel" data-family="engine-out" aria-labelledby="crew-oxygen-heading">
         <h2 id="crew-oxygen-heading">Crew Oxygen Endurance</h2>
         <p class="dpa-assumptions">Assumes a fixed 10-minute initial descent / protective segment, then ongoing oxygen use at the selected regulator mode and entered cabin altitude.</p>
@@ -907,6 +980,8 @@
     <script defer src="./diversion_data.js"></script>
     <script defer src="./go_around_data.js"></script>
     <script defer src="./airspeed_unreliable_data.js"></script>
+    <script defer src="./brake_cooling_data.js"></script>
+    <script defer src="./brake_cooling.js"></script>
     <script defer src="./sync-config.js"></script>
     <script defer src="./app.js"></script>
   </body>

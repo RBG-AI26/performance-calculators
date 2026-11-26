@@ -113,6 +113,8 @@ function loadApp(context) {
     "flaps_up_data.js",
     "diversion_data.js",
     "go_around_data.js",
+    "brake_cooling_data.js",
+    "brake_cooling.js",
   ];
 
   for (const file of dataFiles) {
@@ -239,5 +241,78 @@ assertApprox(eoDiversion.timeMinutes, 34.25, 1e-6, "EO diversion time");
 const cog = context.calculateCogLimit(170.5);
 assertApprox(cog.cgLimitPctMac, 31.0075, 1e-6, "CoG limit");
 assert.equal(cog.warnings.length, 0, "CoG limit warnings");
+
+// Brake cooling: published chart points, interpolation, corrections and chart boundaries.
+const ref = context.brakeReferenceEnergy;
+assert.equal(ref(270, 0, 120, 0), 50);
+assert.equal(ref(150, 20, 120, 10000), 42.5, "Overlapping 10,000 ft column");
+assert.equal(ref(110, 40, 200, 14000), 88.8);
+assert.equal(ref(230, 40, 180, 12000), 143.4, "Exact point adjacent to a blank");
+assert.equal(ref(190, 15, 140, 5000), 58.3);
+assert.equal(ref(130, 20, 140, 10000), 48.5, "Exact point beside obscured cell");
+assert.throws(() => ref(130, 20, 140, 12000), /obscured/);
+assert.throws(() => ref(129, 18, 137, 12500), /obscured/);
+assert.throws(() => ref(230, 40, 180, 12500), /blank/);
+assert.throws(() => ref(270, 15, 180, 10000), /blank/);
+assert.throws(() => ref(270, 15, 120, 14001), /pressure altitude/);
+assert.throws(() => ref(109, 15, 120, 0), /aircraft weight/);
+assert.throws(() => ref(190, -1, 120, 0), /OAT/);
+// Midpoint on all four axes: arithmetic mean of the 16 surrounding chart entries.
+const corners = [27, 30.8, 36.8, 42.4, 27.9, 31.9, 38.1, 43.9,
+  29.2, 33.5, 40.1, 46.3, 30.2, 34.7, 41.5, 47.9];
+assertApprox(ref(200, 5, 110, 2500), corners.reduce((a, b) => a + b) / 16, 1e-10, "4D interpolation");
+assertApprox(ref(110, 0, 100, 11000), 23.75, 1e-10, "10,000–12,000 ft interval");
+assertApprox(ref(110, 0, 100, 13000), 25.1, 1e-10, "12,000–14,000 ft interval");
+
+const brakeInput = {
+  weight: 270, speed: 120, basis: "ias", wind: 0, oat: 0, altitude: 0,
+  event: "ab4", reverse: "two", taxi: 0, deactivated: 0, residual: 0,
+};
+const stop = (changes = {}) => context.calculateBrakeEvent({ ...brakeInput, ...changes });
+const nominalStop = stop();
+assert.equal(nominalStop.reference, 50);
+assert.equal(nominalStop.eventEnergy, 24.9);
+assertApprox(nominalStop.schedule.ground, 30.92, 1e-10, "Landing cooling on ground");
+assertApprox(nominalStop.schedule.airborne, 3.092, 1e-10, "Landing cooling in flight");
+assert.equal(stop({ wind: 20, speed: 130 }).reference, 50);
+assert.equal(stop({ wind: -10, speed: 105 }).reference, 50);
+assert.throws(() => stop({ speed: 100, wind: 2 }), /table entry speed/);
+assert.equal(stop({ basis: "gs", wind: NaN, altitude: NaN, oat: NaN }).reference, 52.5);
+assert.equal(stop({ event: "rto", speed: 200, oat: 40 }).total, 133.4);
+assert.throws(() => stop({ speed: 200, oat: 40 }), /landing table covers 20–120/);
+assert.throws(() => stop({ weight: 110, speed: 100 }), /landing table covers 20–120/);
+assert.throws(() => stop({ residual: -2 }), /residual energy/);
+assert.throws(() => stop({ taxi: NaN }), /taxi distance/);
+assert.equal(stop({ event: "rto", weight: 110, speed: 100 }).schedule.zone, "No special procedure required");
+for (const [reverse, energies] of Object.entries({
+  none: [43.7, 40.7, 38.5, 36.6, 34.8, 31.6],
+  two: [39.6, 31.6, 24.9, 18.9, 13.9, 9.5],
+})) {
+  ["manual", "auto", "ab4", "ab3", "ab2", "ab1"].forEach((event, i) => {
+    assert.equal(stop({ event, reverse }).eventEnergy, energies[i]);
+  });
+}
+for (const [count, factor] of [[0, 1], [1, 1.15], [2, 1.34]]) {
+  assertApprox(stop({ taxi: 2, residual: 3, deactivated: count }).total, 3 + 26.9 * factor, 1e-10, "Total energy");
+}
+for (const [energy, indication, ground, airborne] of [
+  [20, 2.4, 13, 1.3], [21, 2.6, 20, 2], [26, 3.1, 34, 3.4],
+  [30, 3.7, 49, 4.9], [35, 4.3, 62, 6.2], [39, 4.8, 71, 7.1], [40, 4.9, 73, 7.3],
+]) {
+  for (const [value, basis] of [[energy, "energy"], [indication, "indication"]]) {
+    const entry = context.brakeSchedule(value, basis);
+    assertApprox(entry.ground, ground, 1e-10, "Ground cooling column");
+    assertApprox(entry.airborne, airborne, 1e-10, "Gear-down cooling column");
+  }
+}
+for (const [basis, cases] of Object.entries({
+  energy: [[19, "No special procedure required"], [19.01, "Cooling required"], [40.01, "Caution zone"],
+    [41, "Caution zone"], [56, "Caution zone"], [56.01, "Fuse plug melt zone"], [57, "Fuse plug melt zone"]],
+  indication: [[2.3, "No special procedure required"], [5, "Caution zone"], [7, "Caution zone"], [7.1, "Fuse plug melt zone"]],
+})) {
+  for (const [value, expected] of cases) assert.equal(context.brakeSchedule(value, basis).zone, expected);
+}
+assert.equal(context.brakeSchedule(2.5, "indication").ground, 16.5);
+assert.throws(() => context.brakeSchedule(4.91, "indication"), /decimal place/);
 
 console.log("Regression checks passed.");
